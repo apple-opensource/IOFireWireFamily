@@ -604,7 +604,10 @@ protected:
  	OSIterator *				fPHYPacketListenersIterator;
 
 	bool						fDSLimited;
-	
+
+	IONotifier *				fConsoleLockNotifier;
+	IOFireWireLocalNode *       fLocalNode;
+    
 /*! @struct ExpansionData
     @discussion This structure will be used to expand the capablilties of the class in the future.
     */    
@@ -1072,6 +1075,10 @@ public:
 private:
 	void addToIRMAllocationSet(IOFireWireIRMAllocation *anObject);
 	void removeFromIRMAllocationSet(IOFireWireIRMAllocation *anObject);
+
+	static IOReturn consoleLockInterestHandler( void * target, void * refCon,
+									 UInt32 messageType, IOService * provider,
+									 void * messageArgument, vm_size_t argSize );
 	
 protected:	
 	OSMetaClassDeclareReservedUnused(IOFireWireController, 0);
