@@ -21,6 +21,9 @@
  */
 /*
 	$Log: IOFWQEventSource.cpp,v $
+	Revision 1.4  2003/01/31 23:26:22  collin
+	*** empty log message ***
+	
 	Revision 1.3  2002/10/18 23:29:42  collin
 	fix includes, fix cast which fails on new compiler
 	
@@ -38,13 +41,20 @@
 // IOFWQEventSource
 OSDefineMetaClassAndStructors(IOFWQEventSource, IOEventSource)
 
+// checkForWork
+//
+//
+
 bool IOFWQEventSource::checkForWork()
 {
     return fQueue->executeQueue(false);
 }
 
-bool
-IOFWQEventSource::init( IOFireWireController* owner )
+// init
+//
+//
+
+bool IOFWQEventSource::init( IOFireWireController* owner )
 {
     fQueue = &owner->getPendingQ();
     return IOEventSource::init(owner);

@@ -28,10 +28,12 @@
  *
  */
 
-#import <IOKit/firewire/IOFireWireLib.h>
+#import "IOFireWireLibIUnknown.h"
+#import "IOFireWireLibPriv.h"
 
 namespace IOFireWireLib {
 
+	class Device ;
 	class PseudoAddressSpace: public IOFireWireIUnknown
 	{
 			typedef ::IOFireWirePseudoAddressSpaceInterface 	Interface ;
@@ -45,7 +47,7 @@ namespace IOFireWireLib {
 		
 		public:
 			// static allocator
-			static IUnknownVTbl** 	Alloc( Device& userclient, KernAddrSpaceRef inKernAddrSpaceRef, 
+			static IUnknownVTbl** 	Alloc( Device& userclient, UserObjectHandle inKernAddrSpaceRef, 
 											void* inBuffer, UInt32 inBufferSize, void* inBackingStore, 
 											void* inRefCon) ;
 		
@@ -88,7 +90,7 @@ namespace IOFireWireLib {
 			// --- constructor/destructor ----------
 									PseudoAddressSpace(
 											Device&	userclient,
-											KernAddrSpaceRef				inKernAddrSpaceRef,
+											UserObjectHandle				inKernAddrSpaceRef,
 											void*							inBuffer,
 											UInt32							inBufferSize,
 											void*							inBackingStore,
@@ -132,7 +134,7 @@ namespace IOFireWireLib {
 			SkippedPacketHandler	mSkippedPacketHandler ;
 			Device&					mUserClient ;
 			FWAddress				mFWAddress ;
-			KernAddrSpaceRef		mKernAddrSpaceRef ;
+			UserObjectHandle		mKernAddrSpaceRef ;
 			char*					mBuffer ;
 			UInt32					mBufferSize ;
 		

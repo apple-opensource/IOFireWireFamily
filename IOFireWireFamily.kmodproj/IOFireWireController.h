@@ -35,6 +35,7 @@
 
 #include <IOKit/IOEventSource.h>
 #include <IOKit/firewire/IOFireWireBus.h>
+#include <IOKit/firewire/IOFireWireFamilyCommon.h>
 
 class OSData;
 class IOWorkLoop;
@@ -47,17 +48,23 @@ class IOFWAddressSpace;
 class IOFWPseudoAddressSpace;
 class IOFireWireNub;
 class IOFireWireDevice;
+class IOFireWireDeviceAux;
 class IOFireWireUnit;
 class IODCLProgram;
 class IOLocalConfigDirectory;
 class IOFireWireLink;
-class IOFireLog;
-class IOFireLogPublisher;
 class IOFireWireSBP2ORB;
+class IOFireWireSBP2Login;
 class IOFireWireROMCache;
 class IOFireWireLocalNode;
 class IOFWWorkLoop;
 class IOFireWireIRM;
+class IOFireWirePowerManager;
+
+#if FIRELOGCORE
+class IOFireLog;
+class IOFireLogPublisher;
+#endif
 
 // Phy packet defs.
 
@@ -244,10 +251,109 @@ struct IOFWNodeScan {
     int							fRead;
     IOFWReadQuadCommand 	* 	fCmd;
     UInt32						generation;
+    UInt32						fIRMBitBucket;
+    bool						fIRMisBad;
     bool						speedChecking;
+    bool						fIRMChecking;
+	int							fRetriesBumped;
+};
+
+
+typedef struct IOFWDuplicateGUIDStruct IOFWDuplicateGUIDRec;
+struct IOFWDuplicateGUIDStruct
+ {
+	IOFWDuplicateGUIDRec		* 	fNextGUID;
+	CSRNodeUniqueID				fGUID;
+	UInt32						fLastGenSeen;
+};
+	
+
+// IOFireWireDuplicateGUIDList
+//
+// A little class for keeping track of GUIDs which where we have observed 2 nodes with
+// the same GUID
+
+class IOFireWireDuplicateGUIDList : public OSObject
+{
+    OSDeclareDefaultStructors(IOFireWireDuplicateGUIDList);
+
+private:
+    IOFWDuplicateGUIDRec		* 	fFirstGUID;
+    
+protected:
+    virtual void free();
+    
+public:
+
+	static IOFireWireDuplicateGUIDList * create( void );
+
+	void addDuplicateGUID( CSRNodeUniqueID guid, UInt32 gen );
+	void removeDuplicateGUID( CSRNodeUniqueID guid );
+	
+	bool findDuplicateGUID( CSRNodeUniqueID guid, UInt32 gen );
+	
 };
 
 #define kMaxPendingTransfers kFWAsynchTTotal
+
+class IOFireWireController;
+
+#pragma mark -
+
+/*! 
+	@class IOFireWireControllerAux
+*/
+
+class IOFireWireControllerAux : public IOFireWireBusAux
+{
+    OSDeclareDefaultStructors(IOFireWireControllerAux)
+
+	friend class IOFireWireController;
+	
+protected:
+	
+	IOFireWireController * 		fPrimary;
+	
+	UInt8						fMaxRec;
+	
+	UInt8						fPadding;
+	UInt16						fPadding2;
+	
+	/*! 
+		@struct ExpansionData
+		@discussion This structure will be used to expand the capablilties of the class in the future.
+    */  
+	  
+    struct ExpansionData { };
+
+	/*! 
+		@var reserved
+		Reserved for future use.  (Internal use only)  
+	*/
+    
+	ExpansionData * reserved;
+
+    virtual bool 									init ( 
+																IOFireWireController * 	primary );
+	virtual	void 									free ();
+	virtual IOFWDCLPool *							createDCLPool ( unsigned capacity ) const ;	
+	virtual UInt8									getMaxRec( void );
+	virtual IOFWBufferFillIsochPort *				createBufferFillIsochPort() const ;
+	
+private:
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 0);
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 1);
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 2);
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 3);
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 4);
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 5);
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 6);
+    OSMetaClassDeclareReservedUnused(IOFireWireControllerAux, 7);
+
+};
+
+#pragma mark -
+
 /*! @class IOFireWireController
 */
 class IOFireWireController : public IOFireWireBus
@@ -258,6 +364,7 @@ protected:
     enum busState {
         kStarting = 0,		
 		kAsleep,			// Link off, zzzzzz
+		kWaitingBusReset,
         kWaitingSelfIDs,	// Bus has been reset, no selfIDs yet
         kWaitingScan,		// Got selfIDs, waiting a bit before hitting lame devices
         kScanning,			// Reading node ROMs
@@ -294,94 +401,126 @@ protected:
     friend class IOFWAddressSpace;
     friend class IOFWPseudoAddressSpace;
     friend class IOFireWireSBP2ORB;
+	friend class IOFireWireSBP2Login;
 	friend class IOFWLocalIsochPort;
 	friend class IOFWCommand;
 	friend class IOFireWireDevice;
-    friend class IOFireWirePCRSpace;
+	friend class IOFireWireDeviceAux;
+    friend class IOFireWireUnit;
+	friend class IOFireWirePCRSpace;
     friend class IOFireWireROMCache;
     friend class IOFWAsyncStreamCommand;
 	friend class IOFWAddressSpaceAux;
 	friend class IOFireWireAVCLocalUnit;
 	friend class IOFireWireAVCUnit;
     friend class IOFireWireAVCCommand;
-    friend class IOFireLog;
+	friend class IOFireWirePowerManager;
 	friend class IOFWWriteQuadCommand;
 	friend class IOFWWriteCommand;
+	friend class IOFWCompareAndSwapCommand;
+	friend class IOFWAsyncCommand;
+	friend class IOFireWireAVCTargetSpace ;
 	
-    IOFireWireLink *		fFWIM;
-    IOFWWorkLoop *	fWorkLoop;
-    IOTimerEventSource *fTimer;
-    OSSet *		fLocalAddresses;	// Collection of local adress spaces
-    OSIterator *	fSpaceIterator;		// Iterator over local addr spaces
+#if FIRELOGCORE
+	friend class IOFireLog;
+#endif
 
-    OSSet *		fAllocatedChannels;	// Need to be informed of bus resets
-    OSIterator *	fAllocChannelIterator;	// Iterator over channels
+    IOFireWireLink *			fFWIM;
+    IOFWWorkLoop *				fWorkLoop;
+    IOTimerEventSource *		fTimer;
+    OSSet *						fLocalAddresses;	// Collection of local adress spaces
+    OSIterator *				fSpaceIterator;		// Iterator over local addr spaces
+
+    OSSet *						fAllocatedChannels;	// Need to be informed of bus resets
+    OSIterator *				fAllocChannelIterator;	// Iterator over channels
 
     // Bus management variables (although we aren't a FireWire Bus Manager...)
-    AbsoluteTime	fResetTime;		// Time of last reset
-    UInt32		fBusGeneration;		// ID of current bus topology.
-    UInt16		fLocalNodeID;		// ID of local node, ie. this computer
-    UInt16		fRootNodeID;		// ID of root, ie. highest node id in use.
-    UInt16		fIRMNodeID;		// ID of Isochronous resource manager, or kFWBadNodeID
-    bool		fBusMgr;		// true if at least one node is bus manager capable
-    IORegistryEntry * 	fNodes[kFWMaxNodesPerBus];	// FireWire nodes on this bus
-    UInt32 *	 	fNodeIDs[kFWMaxNodesPerBus+1];	// Pointer to SelfID list for each node
+    AbsoluteTime				fResetTime;		// Time of last reset
+    UInt32						fBusGeneration;		// ID of current bus topology.
+    UInt16						fLocalNodeID;		// ID of local node, ie. this computer
+    UInt16						fRootNodeID;		// ID of root, ie. highest node id in use.
+    UInt16						fIRMNodeID;		// ID of Isochronous resource manager, or kFWBadNodeID
+    bool						fBusMgr;		// true if at least one node is bus manager capable
+    IORegistryEntry *			fNodes[kFWMaxNodesPerBus];	// FireWire nodes on this bus
+    UInt32 *					fNodeIDs[kFWMaxNodesPerBus+1];	// Pointer to SelfID list for each node
 							// +1 so we know how many selfIDs the last node has
-    UInt32		fGapCount;		// What we think the gap count should be
-    UInt8		fSpeedCodes[(kFWMaxNodesPerBus+1)*kFWMaxNodesPerBus];
+							
+    UInt32						fGapCount;		// What we think the gap count should be
+    UInt8						fSpeedCodes[(kFWMaxNodesPerBus+1)*kFWMaxNodesPerBus];
 						// Max speed between two nodes
-    busState	fBusState;		// Which state are we in?
-    int			fNumROMReads;		// Number of device ROMs we are still reading
+    busState					fBusState;		// Which state are we in?
+    int							fNumROMReads;		// Number of device ROMs we are still reading
     // SelfIDs
-    int			fNumSelfIDs;		// Total number of SelfID packets
-    UInt32		fSelfIDs[kMaxSelfIDs*kFWMaxNodesPerBus];
+    int							fNumSelfIDs;		// Total number of SelfID packets
+    UInt32						fSelfIDs[kMaxSelfIDs*kFWMaxNodesPerBus];
 
     // The local device's Config ROM
-    UInt32 		fROMHeader[5];		// More or less fixed header and bus info block
-    IOLocalConfigDirectory *fRootDir;		// Local Config ROM root directory.
+    UInt32						fROMHeader[5];		// More or less fixed header and bus info block
+    IOLocalConfigDirectory *	fRootDir;		// Local Config ROM root directory.
 
     // log base 2 of maximum packet size the FWIM can send/receive
     // Normally calculated from bus info block.
     int	fMaxSendLog;
     int fMaxRecvLog;
     
-    IOFWAddressSpace *	fROMAddrSpace;
-    IOMemoryDescriptor *fBadReadResponse;	// Send back easily identified bad data to out of range addrs. 
+    IOFWAddressSpace *			fROMAddrSpace;
+    IOMemoryDescriptor *		fBadReadResponse;	// Send back easily identified bad data to out of range addrs. 
 
     // Array for outstanding requests (up to 64)
-    AsyncPendingTrans	fTrans[kMaxPendingTransfers];
-    int			fLastTrans;
+    AsyncPendingTrans			fTrans[kMaxPendingTransfers];
+    int							fLastTrans;
 
     // queue for executing commands that may timeout
-    timeoutQ		fTimeoutQ;
+    timeoutQ					fTimeoutQ;
 
     // queue for commands that can't execute yet
-    pendingQ		fPendingQ;
+    pendingQ					fPendingQ;
 
     // queue for async commands interrupted by bus reset
-    IOFWCmdQ		fAfterResetHandledQ;
+    IOFWCmdQ					fAfterResetHandledQ;
     
     // Command to change bus state after a delay.
-    IOFWDelayCommand *	fDelayedStateChangeCmd;
-    bool fDelayedStateChangeCmdNeedAbort;
+    IOFWDelayCommand *			fDelayedStateChangeCmd;
+    bool						fDelayedStateChangeCmdNeedAbort;
     
-	UInt32				fDelayedPhyPacket;
-	bool 				fBusResetScheduled;
-	ResetState			fBusResetState;
-	IOFWDelayCommand *	fBusResetStateChangeCmd;
-	UInt32 				fBusResetDisabledCount;
+	UInt32						fDelayedPhyPacket;
+	bool						fBusResetScheduled;
+	ResetState					fBusResetState;
+	IOFWDelayCommand *			fBusResetStateChangeCmd;
+	UInt32						fBusResetDisabledCount;
 
-    IOFireLogPublisher * fFireLogPublisher;
+#if FIRELOGCORE
+    IOFireLogPublisher *		fFireLogPublisher;
+#else
+    void *						fFireLogPublisher;
+#endif
 
-    OSData * fAllocatedAddresses;
+    OSData *					fAllocatedAddresses;
 
-	UInt32	fDevicePruneDelay;
+	UInt32						fDevicePruneDelay;
 	
-	IOFWPhysicalAccessMode	fPhysicalAccessMode;
-	IOFWSecurityMode 		fSecurityMode;
-	IONotifier * 		fKeyswitchNotifier;
+	IOFWPhysicalAccessMode		fPhysicalAccessMode;
+	IOFWSecurityMode			fSecurityMode;
+	IONotifier *				fKeyswitchNotifier;
 	
-	IOFireWireIRM *			fIRM;
+	IOFireWireIRM *				fIRM;
+	IOFireWirePowerManager *	fBusPowerManager;
+	
+	bool						fGapCountMismatch;
+	
+	UInt8						fHopCounts[(kFWMaxNodesPerBus+1)*kFWMaxNodesPerBus];
+
+	bool						fUseHalfSizePackets;
+	bool						fRequestedHalfSizePackets;
+
+	IOFWNodeScan *					fScans[kFWMaxNodesPerBus];
+	IOFireWireDuplicateGUIDList	*	fGUIDDups;
+	
+	bool						fDelegateCycleMaster;
+	bool						fBadIRMsKnown;
+	
+	UInt32						fPreviousGap;
+	IONotifier *				fPowerEventNotifier;
 	
 /*! @struct ExpansionData
     @discussion This structure will be used to expand the capablilties of the class in the future.
@@ -430,11 +569,13 @@ protected:
     virtual void buildTopology(bool doFWPlane);
 
     virtual void readDeviceROM(IOFWNodeScan *refCon, IOReturn status);
-
+    
     virtual IOReturn UpdateROM();
     virtual IOReturn allocAddress(IOFWAddressSpace *space);
     virtual void freeAddress(IOFWAddressSpace *space);
 
+	IOFireWireBusAux * createAuxiliary( void );
+	
 public:
 
     // Initialization
@@ -445,7 +586,7 @@ public:
     virtual bool finalize( IOOptionBits options );
     virtual bool requestTerminate( IOService * provider, IOOptionBits options );
 
-    // Power management
+	// Power management
     virtual IOReturn setPowerState ( unsigned long powerStateOrdinal, IOService* whatDevice );
 
     // Implement IOService::getWorkLoop
@@ -468,28 +609,65 @@ public:
     virtual IOReturn resetBus();
 
     // Send async request packets
-    virtual IOReturn asyncRead(UInt32 generation, UInt16 nodeID, UInt16 addrHi, UInt32 addrLo,
-                                int speed, int label, int size, IOFWAsyncCommand *cmd);
+    virtual IOReturn asyncRead(	UInt32 				generation, 
+								UInt16 				nodeID, 
+								UInt16 				addrHi, 
+								UInt32 				addrLo,
+                                int 				speed, 
+								int 				label, 
+								int 				size, 
+								IOFWAsyncCommand *	cmd );
 
-    virtual IOReturn asyncWrite(UInt32 generation, UInt16 nodeID, UInt16 addrHi, UInt32 addrLo,
-                int speed, int label, IOMemoryDescriptor *buf, IOByteCount offset,
-                int size, IOFWAsyncCommand *cmd);
-    virtual IOReturn asyncWrite(UInt32 generation, UInt16 nodeID, UInt16 addrHi, UInt32 addrLo,
-                                int speed, int label, void *data, int size, IOFWAsyncCommand *cmd);
+    virtual IOReturn asyncWrite(	UInt32 					generation, 
+									UInt16 					nodeID, 
+									UInt16 					addrHi, 
+									UInt32 					addrLo,
+									int 					speed, 
+									int 					label, 
+									IOMemoryDescriptor *	buf, 
+									IOByteCount 			offset,
+									int 					size, 
+									IOFWAsyncCommand *		cmd );
+				
+    /* DEPRECATED */ virtual IOReturn asyncWrite(	UInt32 				generation, 
+	/* DEPRECATED */								UInt16 				nodeID, 
+	/* DEPRECATED */								UInt16 				addrHi, 
+	/* DEPRECATED */								UInt32 				addrLo,
+	/* DEPRECATED */								int 				speed, 
+	/* DEPRECATED */								int 				label, 
+	/* DEPRECATED */								void *				data, 
+	/* DEPRECATED */								int 				size, 
+	/* DEPRECATED */								IOFWAsyncCommand *	cmd );
 
-    virtual IOReturn asyncLock(UInt32 generation, UInt16 nodeID, UInt16 addrHi, UInt32 addrLo,
-                        int speed, int label, int type, void *data, int size, IOFWAsyncCommand *cmd);
+    /* DEPRECATED */ virtual IOReturn asyncLock(	UInt32 				generation, 
+	/* DEPRECATED */								UInt16 				nodeID, 
+	/* DEPRECATED */								UInt16 				addrHi, 
+	/* DEPRECATED */								UInt32 				addrLo,
+	/* DEPRECATED */								int 				speed, 
+	/* DEPRECATED */								int 				label, 
+	/* DEPRECATED */								int 				type, 
+	/* DEPRECATED */								void *				data, 
+	/* DEPRECATED */								int 				size, 
+	/* DEPRECATED */								IOFWAsyncCommand *	cmd);
 
 
     // Send async read response packets
     // useful for pseudo address spaces that require servicing outside the FireWire work loop.
-    virtual IOReturn asyncReadResponse(UInt32 generation, UInt16 nodeID, int speed,
-                                       IOMemoryDescriptor *buf, IOByteCount offset, int len,
-                                       IOFWRequestRefCon refcon);
+    virtual IOReturn asyncReadResponse(	UInt32 					generation, 
+										UInt16 					nodeID, 
+										int 					speed,
+										IOMemoryDescriptor *	buf, 
+										IOByteCount 			offset, 
+										int 					len,
+										IOFWRequestRefCon 		refcon );
 
-    virtual IOReturn asyncLockResponse( UInt32 generation, UInt16 nodeID, int speed,
-                                        IOMemoryDescriptor *buf, IOByteCount offset, int len,
-                                        IOFWRequestRefCon refcon );
+    virtual IOReturn asyncLockResponse( UInt32 					generation, 
+										UInt16 					nodeID, 
+										int 					speed,
+                                        IOMemoryDescriptor *	buf, 
+										IOByteCount 			offset, 
+										int 					len,
+                                        IOFWRequestRefCon 		refcon );
                                        
     // Try to fix whatever might have caused the other device to not respond
     virtual IOReturn handleAsyncTimeout(IOFWAsyncCommand *cmd);
@@ -611,7 +789,35 @@ protected:
 	virtual void setSecurityMode( IOFWSecurityMode mode );
 	virtual IOFWSecurityMode getSecurityMode( void );
 
-	virtual IOReturn asyncWrite(	UInt32 					generation, 
+	virtual IOReturn createTimeoutQ( void );
+	virtual void destroyTimeoutQ( void );
+	virtual IOReturn createPendingQ( void );
+	virtual void destroyPendingQ( void );
+
+	virtual UInt32 countNodeIDChildren( UInt16 nodeID );
+
+public:
+	virtual UInt32 hopCount(UInt16 nodeAAddress, UInt16 nodeBAddress );
+	virtual UInt32 hopCount(UInt16 nodeAAddress );
+	
+	virtual IOFireWirePowerManager * getBusPowerManager( void );
+
+protected:
+	virtual void handleARxReqIntComplete();
+
+    virtual IOReturn asyncLock(	UInt32 					generation, 
+								UInt16 					nodeID, 
+								UInt16 					addrHi, 
+								UInt32 					addrLo,
+								int 					speed, 
+								int 					label, 
+								int 					type, 
+								IOMemoryDescriptor *	buf, 
+								IOByteCount 			offset,
+								int 					size, 
+								IOFWAsyncCommand *		cmd );
+
+    virtual IOReturn asyncWrite(	UInt32 					generation, 
 									UInt16 					nodeID, 
 									UInt16 					addrHi, 
 									UInt32 					addrLo,
@@ -622,20 +828,30 @@ protected:
 									int 					size, 
 									IOFWAsyncCommand *		cmd,
 									IOFWWriteFlags 			flags );
-									
-	virtual IOReturn asyncWrite(	UInt32 				generation, 
-									UInt16 				nodeID, 
-									UInt16 				addrHi, 
-									UInt32 				addrLo,
-									int 				speed, 
-									int 				label, 
-									void *				data, 
-									int 				size, 
-									IOFWAsyncCommand *	cmd,
-									IOFWWriteFlags 		flags );
 
-	virtual void handleARxReqIntComplete();
+protected:
+	bool delayedStateCommandInUse() const;
+	void enterBusResetDisabledState( );
+	
+	virtual UInt32 getPortNumberFromIndex( UInt16 index );
+												
+    virtual bool checkForDuplicateGUID(IOFWNodeScan *scan, CSRNodeUniqueID *currentGUIDs );
+    virtual void updateDevice(IOFWNodeScan *scan );
+    virtual bool AssignCycleMaster();
 
+public:
+
+ 	IOReturn clipMaxRec2K(Boolean clipMaxRec );
+	void setNodeSpeed( UInt16 nodeAddress, IOFWSpeed speed );
+	void useHalfSizePackets( void );
+	void disablePhyPortOnSleepForNodeID( UInt32 nodeID );
+
+	IOReturn handleAsyncCompletion( IOFWCommand *cmd, IOReturn status );
+
+	static IOReturn systemShutDownHandler( void * target, void * refCon,
+                                    UInt32 messageType, IOService * service,
+                                    void * messageArgument, vm_size_t argSize );
+	
 private:
     OSMetaClassDeclareReservedUnused(IOFireWireController, 0);
     OSMetaClassDeclareReservedUnused(IOFireWireController, 1);

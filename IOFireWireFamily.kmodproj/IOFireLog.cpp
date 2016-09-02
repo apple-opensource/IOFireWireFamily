@@ -20,6 +20,8 @@
  * @APPLE_LICENSE_HEADER_END@
  */
  
+#if FIRELOGCORE
+
 #include "IOFireLogPriv.h"
 
 // FireLog
@@ -28,7 +30,6 @@
 
 void FireLog( const char *format, ... )
 {
-#if FIRELOG
     IOFireLog * firelog;
     va_list ap;
     va_start(ap, format);
@@ -38,10 +39,11 @@ void FireLog( const char *format, ... )
         firelog->logString( format, ap );
     
     va_end(ap);
-#endif
 }
 
-#if FIRELOG
+#endif
+
+#if FIRELOGCORE
 
 extern "C" {
 #include <kern/clock.h>
@@ -101,8 +103,8 @@ IOReturn IOFireLog::create( void )
         }
         else if( sFireLog != NULL ) // unnecessary
         {
-            IOLog( "Welcome to FireLog.\n" );
-            FireLog( "Welcome to FireLog.\n" );
+            IOLog( "Welcome to FireLog. (built %s %s)\n", __TIME__, __DATE__ );
+            FireLog( "Welcome to FireLog. (built %s %s)\n", __TIME__, __DATE__ );
         }
     }
     
@@ -124,13 +126,13 @@ IOReturn IOFireLog::initialize( void )
     fLogSize = kFireLogSize + sizeof(FireLogHeader);
     
     clock_get_uptime(&time);
-    fRandomID = time.lo;
+    fRandomID = (uint32_t)AbsoluteTime_to_scalar(&time);
     fRandomID &= 0x00ffffff;
     
     fController = NULL;
     
     // allocate mem for log
-    fLogDescriptor = IOBufferMemoryDescriptor::withCapacity( fLogSize, kIODirectionOut, true );
+    fLogDescriptor = IOBufferMemoryDescriptor::withCapacity( fLogSize, kIODirectionOutIn, true );
     if( fLogDescriptor == NULL )
         status =  kIOReturnNoMemory;
 
@@ -184,10 +186,6 @@ IOReturn IOFireLog::initialize( void )
 
 void IOFireLog::free( void )
 { 
-
-    panic( "Somebody free()'d FireLog" );
-    
-#if 0   
     if( fLogDescriptor )
     {
         fLogDescriptor->release();
@@ -199,7 +197,6 @@ void IOFireLog::free( void )
         IOLockFree( fLock );
         fLock = NULL;
     }
-#endif
 
     OSObject::free();
 }
@@ -541,7 +538,7 @@ IOReturn IOFireLogPublisher::initWithController( IOFireWireController* controlle
             subsystem_vendor_id = *subsystem_vendor_id_ptr;
     }
 		
-    IOLog( "vendor_id = 0x%08lx, subsystem_id = 0x%08lx, subsystem_vendor_id = 0x%08lx\n", vendor_id, subsystem_id, subsystem_vendor_id );
+//    IOLog( "vendor_id = 0x%08lx, subsystem_id = 0x%08lx, subsystem_vendor_id = 0x%08lx\n", vendor_id, subsystem_id, subsystem_vendor_id );
     
 	// the goal of this code is to pick the FireWire interface on the motherboard 
 	// to grab FireWire cycle time information, however this code is still a work
@@ -565,7 +562,7 @@ IOReturn IOFireLogPublisher::initWithController( IOFireWireController* controlle
 		// could pick some PCI cards
 		fFireLog->setMainController( fController );
     }
-	else if ( vendor_id = 0x104c )
+	else if ( vendor_id == 0x104c )
 	{
 		// Some G4 Towers
 		

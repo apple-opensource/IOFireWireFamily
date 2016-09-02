@@ -28,7 +28,8 @@
  */
 
 // public
-#include <IOKit/firewire/IOFireWireDevice.h>
+#import <IOKit/firewire/IOFireWireDevice.h>
+#import <IOKit/firewire/IOFWDCLPool.h>
 
 // protected
 #include <IOKit/firewire/IOFireWireLink.h>
@@ -132,16 +133,48 @@ IOFWWorkLoop * IOFireWireLink::getFireWireWorkLoop() const
     return fWorkLoop;
 }
 
-void
-IOFireWireLink::closeIsochGate()
+IOFWDCLPool *
+IOFireWireLink :: createDCLPool ( 
+	UInt32				capacity )
 {
-	if ( fIsocInterruptEventSource )
-		fIsocInterruptEventSource->closeGate() ;
+	return NULL ;
 }
 
-void
-IOFireWireLink::openIsochGate()
+IOFWBufferFillIsochPort * 
+IOFireWireLink :: createBufferFillIsochPort ()
 {
-	if ( fIsocInterruptEventSource )
-		fIsocInterruptEventSource->openGate() ;
+	return NULL ;
 }
+ 
+void IOFireWireLink::disablePHYPortOnSleep( UInt32 mask )
+{
+	// nothing to do
+}
+
+UInt32 * IOFireWireLink::getPingTimes ()
+{
+	return NULL ;
+}
+
+bool IOFireWireLink::getPingTransmits ()
+{
+	return false ;
+}
+
+void IOFireWireLink::setPingTransmits ( bool ping )
+{
+	// nothing to do
+}
+
+IOReturn IOFireWireLink::handleAsyncCompletion( IOFWCommand *cmd, IOReturn status )
+{
+	// nothing to do
+	
+	return kIOReturnSuccess;
+}
+
+void IOFireWireLink::handleSystemShutDown( UInt32 messageType )
+{
+	// nothing to do
+}
+

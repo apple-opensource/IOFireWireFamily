@@ -24,229 +24,263 @@
  *
  * HISTORY
  *
+ *	$Log: IOFWDCLProgram.cpp,v $
+ *	Revision 1.28  2005/03/12 03:27:51  collin
+ *	*** empty log message ***
+ *	
+ *	Revision 1.27  2004/06/19 01:05:50  niels
+ *	turn on prebinding for IOFireWireLib.plugin
+ *	
+ *	Revision 1.26  2004/06/10 20:57:36  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.25  2004/04/22 23:34:11  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.24  2003/12/19 22:07:46  niels
+ *	send force stop when channel dies/system sleeps
+ *	
+ *	Revision 1.23  2003/08/30 00:16:44  collin
+ *	*** empty log message ***
+ *	
+ *	Revision 1.22  2003/08/25 09:24:24  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.20  2003/08/25 08:39:15  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.19  2003/08/15 04:36:55  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.18  2003/08/12 00:55:03  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.17  2003/07/29 23:36:29  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.16  2003/07/29 22:49:22  niels
+ *	*** empty log message ***
+ *	
+ *	Revision 1.15  2003/07/21 06:52:58  niels
+ *	merge isoch to TOT
+ *	
+ *	Revision 1.14.4.1  2003/07/01 20:54:06  niels
+ *	isoch merge
+ *	
+ *
  */
 
-#include <IOKit/IOLib.h>
-#include <IOKit/firewire/IOFWDCLProgram.h>
+#import <IOKit/firewire/IOFWDCLProgram.h>
+#import "FWDebugging.h"
 
 OSDefineMetaClass( IODCLProgram, OSObject )
-OSDefineAbstractStructors(IODCLProgram, OSObject)
-OSMetaClassDefineReservedUnused(IODCLProgram, 0);
-OSMetaClassDefineReservedUnused(IODCLProgram, 1);
-OSMetaClassDefineReservedUnused(IODCLProgram, 2);
-OSMetaClassDefineReservedUnused(IODCLProgram, 3);
+OSDefineAbstractStructors ( IODCLProgram, OSObject )
+OSMetaClassDefineReservedUsed ( IODCLProgram, 0 ) ;
+OSMetaClassDefineReservedUsed ( IODCLProgram, 1 ) ;
+OSMetaClassDefineReservedUnused ( IODCLProgram, 2 ) ;
+OSMetaClassDefineReservedUnused ( IODCLProgram, 3 ) ;
+OSMetaClassDefineReservedUnused ( IODCLProgram, 4 ) ;
 
-bool IODCLProgram::init(IOFireWireBus::DCLTaskInfo *info)
+#undef super
+#define super OSObject
+
+static bool
+getDCLDataBuffer(
+	const DCLCommand *		dcl,
+	IOVirtualRange &		outRange)
 {
-    bool ok;
-    ok = OSObject::init();
-    if(!ok || info == NULL)
-	return ok;
-    do {
-        IOReturn res;
-        // Have to map DCL as read/write because timestamp opcode writes
-        // into the DCL.
-        if(info->fDCLBaseAddr) {
-            fDCLDesc = IOMemoryDescriptor::withAddress(info->fDCLBaseAddr,
-            info->fDCLSize, kIODirectionOutIn, info->fTask);
-            if(!fDCLDesc) {
-                ok = false;
-                break;
-            }
-            vm_address_t kernelDCL;
-            IOByteCount len;
-            res = fDCLDesc->prepare(kIODirectionOutIn);
-            if(res != kIOReturnSuccess) {
-                ok = false;
-                break;
-            }
-            kernelDCL = (vm_address_t)fDCLDesc->getVirtualSegment(0, &len);
-            assert(len >= info->fDCLSize);
-            fDCLTaskToKernel = kernelDCL - info->fDCLBaseAddr;
-        }
-        if(info->fDataBaseAddr) {
-            // Horrible hack!!!!
-            if(info->fCallRefCon) {
-                fDataDesc = (IOMemoryDescriptor *)info->fCallRefCon;
-                fDataDesc->retain();
-            }
-            else
-                fDataDesc = IOMemoryDescriptor::withAddress(info->fDataBaseAddr,
-                    info->fDataSize, kIODirectionOutIn, info->fTask);
-            if(!fDataDesc) {
-                ok = false;
-                break;
-            }
-        // 6250 is the total bandwidth per frame at 400Mb/sec, seems a reasonable limit!
-            fDataCursor = IONaturalMemoryCursor::withSpecification(PAGE_SIZE, 6250);
-            if(!fDataCursor) {
-                ok = false;
-                break;
-            }
-            res = fDataDesc->prepare(kIODirectionOutIn);
-            if(res != kIOReturnSuccess) {
-                ok = false;
-                break;
-            }
-            fDataBase = info->fDataBaseAddr;
-        }
-    } while (false);
-    if(!ok) {
-	if(fDCLDesc)
-            fDCLDesc->release();
-        if(fDataDesc)
-            fDataDesc->release();
-        if(fDataCursor)
-            fDataCursor->release();
-    }
-    return ok;
+	bool	result = false ;
+
+	switch( dcl->opcode & ~kFWDCLOpFlagMask)
+	{
+		case kDCLSendPacketStartOp:
+		case kDCLSendPacketWithHeaderStartOp:
+		case kDCLSendPacketOp:
+		case kDCLReceivePacketStartOp:
+		case kDCLReceivePacketOp:
+			outRange.address = (IOVirtualAddress)((DCLTransferPacket*)dcl)->buffer ;
+			outRange.length = ((DCLTransferPacket*)dcl)->size ;
+			result = true ;
+			break ;
+
+		case kDCLPtrTimeStampOp:
+			outRange.address = (IOVirtualAddress)((DCLPtrTimeStamp*)dcl)->timeStampPtr ;
+			outRange.length = sizeof( *( ((DCLPtrTimeStamp*)dcl)->timeStampPtr) ) ;
+			result = true ;
+			break ;
+		
+		default:
+			break ;
+	}
+	
+	return result ;
+}
+
+void
+IODCLProgram :: generateBufferMap( DCLCommand * program )
+{
+	IOVirtualAddress lowAddress = (IOVirtualAddress)-1 ;
+	IOVirtualAddress highAddress = 0 ;
+	
+	for( DCLCommand * dcl = program; dcl != NULL; dcl = dcl->pNextDCLCommand )
+	{
+		IOVirtualRange tempRange ;
+		if ( getDCLDataBuffer( dcl, tempRange ) )
+		{
+//			DebugLog( "see range %p +0x%x\n", (void*)(tempRange.address), (unsigned)(tempRange.length) ) ;
+			
+			lowAddress = lowAddress <? trunc_page( tempRange.address ) ;
+			highAddress = highAddress >? round_page( tempRange.address + tempRange.length ) ;
+		}		
+	}
+	
+	DebugLog("IODCLProgram::generateBufferMap lowAddress=%x highAddress=%x\n", lowAddress, highAddress ) ;
+	
+	if ( lowAddress == 0 )
+	{
+		return ;
+	}
+	
+	IOMemoryDescriptor * desc = IOMemoryDescriptor::withAddress( (void*)lowAddress, highAddress - lowAddress, kIODirectionOutIn ) ;
+
+	DebugLogCond(!desc, "couldn't make memory descriptor!\n") ;
+
+	if ( desc && kIOReturnSuccess != desc->prepare() )
+	{
+		ErrorLog("couldn't prepare memory descriptor\n") ;
+		
+		desc->release() ;
+		desc = NULL ;
+	}
+
+	if ( desc )
+	{
+		fBufferMem = desc->map() ;
+		desc->release() ;
+		
+		DebugLogCond(!fBufferMem, "couldn't make mapping\n") ;
+	}
+}
+
+IOReturn
+IODCLProgram :: virtualToPhysical( 
+	IOVirtualRange						ranges[], 
+	unsigned							rangeCount, 
+	IOMemoryCursor::IOPhysicalSegment	outSegments[], 
+	unsigned &							outPhysicalSegmentCount, 
+	unsigned							maxSegments )
+{
+	// nnn this assumes that subtracting an address of one of the DCL program's buffers in the memory map 
+	// from the base address of the map will produce the correct offset into the memory map despite 
+	// any gaps in the ranges used to build the memory descriptor
+	// should be okay, since memory descriptors from user space have been allocated from a
+	// single call to vm_allocate()
+	
+	outPhysicalSegmentCount = 0 ;
+	if ( rangeCount == 0 )
+		return kIOReturnSuccess ;
+	
+	IOVirtualAddress bufferMemBaseAddress = fBufferMem->getVirtualAddress() ;
+	
+	unsigned rangeIndex=0; 
+	do
+	{
+		if ( outPhysicalSegmentCount >= maxSegments )
+			return kIOReturnDMAError ;
+			
+		IOByteCount transferBytes = ranges[ rangeIndex ].length ;
+		IOVirtualAddress offset = ranges[ rangeIndex ].address - bufferMemBaseAddress ;
+		
+		while( transferBytes > 0 )
+		{
+			outSegments[ outPhysicalSegmentCount ].location = fBufferMem->getPhysicalSegment( offset, & outSegments[ outPhysicalSegmentCount ].length ) ;
+			outSegments[ outPhysicalSegmentCount ].length = outSegments[ outPhysicalSegmentCount ].length <? transferBytes ;
+
+			transferBytes -= outSegments[ outPhysicalSegmentCount ].length ;			
+			offset += outSegments[ outPhysicalSegmentCount ].length ;
+
+			++outPhysicalSegmentCount ;
+		}
+
+	} while ( ++rangeIndex < rangeCount ) ;
+	
+	return kIOReturnSuccess ;
+}
+
+bool
+IODCLProgram :: init ( IOFireWireBus :: DCLTaskInfo * info)
+{
+	if ( ! super :: init () )
+		return false ;
+
+	fExpansionData = new ExpansionData ;
+	if ( !fExpansionData )
+	{
+		return false ;
+	}
+	
+	fExpansionData->resourceFlags = kFWDefaultIsochResourceFlags ;
+
+	bool success = true ;
+	
+	if ( info )
+	{
+		// this part sets up fBufferMem is passed in 'info'
+		
+	
+		if ( ( !info->unused0 && !info->unused1 && !info->unused2 && !info->unused3 && !info->unused4
+			&& ! info->unused5 ) && info->auxInfo )
+		{
+			switch( info->auxInfo->version )
+			{
+				case 0 :
+				{
+					fBufferMem = info->auxInfo->u.v0.bufferMemoryMap ;
+					if ( fBufferMem )
+					{
+						fBufferMem->retain() ;
+					}
+					
+					break ;
+				}
+
+				case 1 :
+				case 2 :
+				{
+					fBufferMem = info->auxInfo->u.v1.bufferMemoryMap ; // handles version 2 also
+					if ( fBufferMem )
+					{
+						fBufferMem->retain() ;
+					}
+					
+					break ;
+				}
+				default :
+					ErrorLog( "unsupported version found in info->auxInfo!\n" ) ;
+					success = false ;
+					break ;
+			} ;
+		}
+	}
+
+    return success ;
 }
 
 void IODCLProgram::free()
 {
-    if(fDCLDesc) {
-        fDCLDesc->complete(kIODirectionOutIn);
-	fDCLDesc->release();
-    }
-    if(fDataDesc) {
-        fDataDesc->complete(kIODirectionOutIn);
-	fDataDesc->release();
-    }
-    if(fDataCursor)
-        fDataCursor->release();
-    OSObject::free();
-}
-
-UInt32 
-IODCLProgram::getPhysicalSegs(
-	void *								addr, 
-	IOByteCount 						len,
-	IOMemoryCursor::PhysicalSegment 	segs[], 
-	UInt32 								maxSegs )
-{
-    UInt32 	nSegs;
-    
-    if( fDataDesc && fDataCursor )
+	if ( fExpansionData )
 	{
-        nSegs = fDataCursor->genPhysicalSegments( fDataDesc, (IOByteCount)addr - fDataBase, segs, maxSegs, len );
-    }
-    else 
-	{
-		vm_address_t 		pos = (vm_address_t)addr ;
-        
-        
-		nSegs = (round_page(pos+len) - trunc_page(pos))/(PAGE_SIZE);
-		if (nSegs > maxSegs) 
-		{
-			IOLog("IODCLProgram::getPhysicalSegs(): Data descriptor too complex for compiler!\n");
-			nSegs = 0;
-		}
-		
-		for( UInt32 i = 0; i < nSegs; i++)
-		{
-			IOByteCount 	segLen ;
-			
-			segs[i].location = pmap_extract( kernel_pmap, pos );
-			segLen = PAGE_SIZE - ( pos & PAGE_MASK );
-			if(segLen > len)
-				segLen = len;
-			segs[i].length = segLen;
-			pos += segLen;
-			len -= segLen;
-		}
-    }
+		delete fExpansionData ;
+		fExpansionData = NULL ;
+	}
 	
-    return nSegs;
-}
-
-void IODCLProgram::dumpDCL(DCLCommand *op)
-{
-    while(op) {
-        UInt32		opcode;
-        IOLog("(0x%p)", op);
-//        op = convertDCLPtrToKernel(op);
-        // Dispatch off of opcode.
-        opcode = op->opcode & ~kFWDCLOpFlagMask;
-        IOLog("Opcode 0x%p:", op);
-        switch(opcode) {
-            case kDCLReceivePacketStartOp :
-            {
-                DCLTransferPacket* t = (DCLTransferPacket*) op;
-
-                IOLog("ReceivePacketStartDCL to 0x%p, size %ld", t->buffer, t->size);
-                break;
-            }
-            case kDCLReceivePacketOp :
-            {
-                DCLTransferPacket* t = (DCLTransferPacket*) op;
-
-                IOLog("ReceivePacketDCL to 0x%p, size %ld", t->buffer, t->size);
-                break;
-            }
-
-            case kDCLSendPacketStartOp :
-            {
-                DCLTransferPacket* t = (DCLTransferPacket*) op;
-
-                IOLog("SendPacketStartDCL from 0x%p, size %ld", t->buffer, t->size);
-                break;
-            }
-
-            case kDCLSendPacketWithHeaderStartOp :
-            {
-                DCLTransferPacket* t = (DCLTransferPacket*) op;
-
-                IOLog("SendPacketWithHeaderStartDCL from 0x%px, size %ld", t->buffer, t->size);
-                break;
-            }
-
-            case kDCLSendPacketOp :
-            {
-                DCLTransferPacket* t = (DCLTransferPacket*) op;
-
-                IOLog("SendPacketDCL from 0x%p, size %ld", t->buffer, t->size);
-                break;
-            }
-
-            case kDCLCallProcOp :
-            {
-                DCLCallProc* t = (DCLCallProc*) op;
-
-                IOLog("CallProcDCL calling %p (0x%lx)", t->proc, t->procData);
-                break;
-            }
-            case kDCLJumpOp :
-                IOLog("JumpDCL to 0x%p", ((DCLJump*)op)->pJumpDCLLabel);
-                break;
-
-            case kDCLLabelOp :
-                IOLog("LabelDCL");
-                break;
-
-            case kDCLSetTagSyncBitsOp :
-                IOLog("SetTagSyncBitsDCL");
-                break;
-
-            case kDCLUpdateDCLListOp :
-            {
-                unsigned int i;
-                DCLUpdateDCLList* t = (DCLUpdateDCLList*) op;
-                DCLCommand** p = t->dclCommandList;
-                IOLog("updateDCLListDCL:");
-                for(i=0; i<t->numDCLCommands; i++)
-                    IOLog("0x%p ", *p++);
-                break;
-            }
-
-            case kDCLTimeStampOp :
-                IOLog("timeStampDCL");
-                break;
-            default: IOLog("Unknown opcode %ld", opcode);
-                break;
-        }
-        IOLog("\n");
-        op = op->pNextDCLCommand;
-    }
+	if ( fBufferMem )
+	{
+		fBufferMem->release() ;
+		fBufferMem = NULL ;
+	}
+	
+    OSObject::free();
 }
 
 IOReturn IODCLProgram::pause()
@@ -259,4 +293,29 @@ IOReturn IODCLProgram::resume()
     return kIOReturnSuccess;
 }
 
+void
+IODCLProgram :: setForceStopProc ( 
+	IOFWIsochChannel::ForceStopNotificationProc proc, 
+	void * 						refCon,
+	IOFWIsochChannel *			channel )
+{
+	DebugLog("IODCLProgram :: setForceStopProc\n") ;
+}
 
+void
+IODCLProgram :: setIsochResourceFlags ( IOFWIsochResourceFlags flags )
+{
+	fExpansionData->resourceFlags = flags ;
+}
+
+IOFWIsochResourceFlags
+IODCLProgram :: getIsochResourceFlags () const
+{
+	return fExpansionData->resourceFlags ;
+}
+
+IOMemoryMap *
+IODCLProgram :: getBufferMap() const
+{
+	return fBufferMem ;
+}

@@ -35,6 +35,57 @@ class IOFireWireROMCache;
 struct IOFWNodeScan;
 struct RomScan;
 
+class IOFireWireDevice;
+
+#pragma mark -
+
+/*! 
+	@class IOFireWireDeviceAux
+*/
+
+class IOFireWireDeviceAux : public IOFireWireNubAux
+{
+    OSDeclareDefaultStructors(IOFireWireDeviceAux)
+
+	friend class IOFireWireDevice;
+	
+protected:
+	
+	UInt32		fUnitCount;
+	IOFWSpeed	fMaxSpeed;
+	
+	/*! 
+		@struct ExpansionData
+		@discussion This structure will be used to expand the capablilties of the class in the future.
+    */  
+	  
+    struct ExpansionData { };
+
+	/*! 
+		@var reserved
+		Reserved for future use.  (Internal use only)  
+	*/
+    
+	ExpansionData * reserved;
+
+    virtual bool init( IOFireWireDevice * primary );
+	virtual	void free();
+
+	virtual bool isTerminated( void );
+	virtual void setTerminationState( TerminationState state );
+	void setMaxSpeed( IOFWSpeed speed );
+	
+	void setUnitCount( UInt32 count );
+	UInt32 getUnitCount( void );
+		
+private:
+    OSMetaClassDeclareReservedUnused(IOFireWireDeviceAux, 0);
+    OSMetaClassDeclareReservedUnused(IOFireWireDeviceAux, 1);
+    OSMetaClassDeclareReservedUnused(IOFireWireDeviceAux, 2);
+    OSMetaClassDeclareReservedUnused(IOFireWireDeviceAux, 3);	
+};
+
+#pragma mark -
 /*! @class IOFireWireDevice
 */
 class IOFireWireDevice : public IOFireWireNub
@@ -42,6 +93,7 @@ class IOFireWireDevice : public IOFireWireNub
     OSDeclareDefaultStructors(IOFireWireDevice)
 
     friend class IOFireWireController;
+	friend class IOFireWireDeviceAux;
 
 /*------------------Useful info about device (also available in the registry)--------*/
 protected:
@@ -137,6 +189,24 @@ protected:
 	virtual void preprocessDirectories( OSDictionary * rootPropTable, OSSet * unitSet );
 	
 	virtual void configurePhysicalFilter( void );
+
+protected:
+	virtual IOFireWireNubAux * createAuxiliary( void );
+
+public:
+	inline bool isTerminated( void )
+		{ return ((IOFireWireDeviceAux*)fAuxiliary)->isTerminated(); }
+		
+	inline void setMaxSpeed( IOFWSpeed speed )
+		{ ((IOFireWireDeviceAux*)fAuxiliary)->setMaxSpeed( speed ); }		
+
+protected:
+	inline void setUnitCount( UInt32 count )
+		{ ((IOFireWireDeviceAux*)fAuxiliary)->setUnitCount( count ); }		
+
+public:
+	inline UInt32 getUnitCount( void )
+		{ return ((IOFireWireDeviceAux*)fAuxiliary)->getUnitCount(); }		
 	
 private:
     OSMetaClassDeclareReservedUnused(IOFireWireDevice, 0);

@@ -28,15 +28,13 @@
  *
  */
 
-// public
-#import <IOKit/firewire/IOFireWireLibIsoch.h>
-
-// private
+#import "IOFireWireLibIUnknown.h"
 #import "IOFireWireLibPriv.h"
-#import "IOFireWireLibIsochPort.h"
+#import "IOFireWireLibIsoch.h"
 
 namespace IOFireWireLib {
 
+	class Device ;
 	class IsochChannel: public IOFireWireIUnknown
 	{
 		protected:
@@ -44,7 +42,7 @@ namespace IOFireWireLib {
 			typedef ::IOFireWireIsochChannelForceStopHandler	ForceStopHandler ;
 
 		public:
-			IsochChannel( IUnknownVTbl* interface, Device& userclient, bool inDoIRM, IOByteCount inPacketSize, IOFWSpeed inPrefSpeed) ;
+			IsochChannel( const IUnknownVTbl & interface, Device& userclient, bool inDoIRM, IOByteCount inPacketSize, IOFWSpeed inPrefSpeed) ;
 			virtual ~IsochChannel() ;
 
 		public:
@@ -57,22 +55,22 @@ namespace IOFireWireLib {
 			virtual IOReturn			Start() ;
 			virtual IOReturn			Stop() ;
 					
-			virtual ForceStopHandler	SetChannelForceStopHandler( ForceStopHandler stopProc ) ;
+			virtual ForceStopHandler	SetChannelForceStopHandler( ForceStopHandler stopProc, IOFireWireLibIsochChannelRef interface ) ;
 			virtual void	 			SetRefCon( void* stopProcRefCon ) ;
 			virtual void*				GetRefCon() ;
 
 			virtual Boolean				NotificationIsOn() ;
-			virtual Boolean				TurnOnNotification() ;
+			virtual Boolean				TurnOnNotification( IOFireWireLibIsochChannelRef interface ) ;
 			virtual void				TurnOffNotification() ;
 
 			virtual void				ClientCommandIsComplete( FWClientCommandID commandID, IOReturn status ) ;
 		
 		protected:
-			static void					ForceStop( ChannelRef refcon, IOReturn result, void** args, int numArgs ) ;
+//			static void					ForceStop( ChannelRef refcon, IOReturn result, void** args, int numArgs ) ;
 		
 		protected:
 			Device&						mUserClient ;
-			KernIsochChannelRef		mKernChannelRef ;
+			UserObjectHandle			mKernChannelRef ;
 			Boolean						mNotifyIsOn ;
 			ForceStopHandler			mForceStopHandler ;
 			void*						mUserRefCon ;

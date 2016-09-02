@@ -47,6 +47,137 @@
 #import "IORemoteConfigDirectory.h"
 #import "IOFireWireROMCache.h"
 
+OSDefineMetaClassAndStructors(IOFireWireDeviceAux, IOFireWireNubAux);
+OSMetaClassDefineReservedUnused(IOFireWireDeviceAux, 0);
+OSMetaClassDefineReservedUnused(IOFireWireDeviceAux, 1);
+OSMetaClassDefineReservedUnused(IOFireWireDeviceAux, 2);
+OSMetaClassDefineReservedUnused(IOFireWireDeviceAux, 3);
+
+#pragma mark -
+
+// init
+//
+//
+
+bool IOFireWireDeviceAux::init( IOFireWireDevice * primary )
+{
+	bool success = true;		// assume success
+	
+	// init super
+	
+    if( !IOFireWireNubAux::init( primary ) )
+        success = false;
+	
+	if( success )
+	{
+		fUnitCount = 0;
+		fMaxSpeed = kFWSpeedMaximum;
+	}
+	
+	return success;
+}
+
+// isTerminated
+//
+//
+
+bool IOFireWireDeviceAux::isTerminated( void )
+{
+	return ((fTerminationState == kTerminated) || fPrimary->isInactive());
+}
+
+// setTerminationState
+//
+//
+
+void IOFireWireDeviceAux::setTerminationState( TerminationState state )
+{
+	IOReturn status = kIOReturnSuccess;
+	
+	IOFireWireNubAux::setTerminationState( state );
+	
+	if( fTerminationState == kTerminated )
+	{
+		// tell all the units that they have been terminated as well
+		
+		OSIterator * clientIterator = NULL;
+		OSObject * client = NULL;
+	
+		if( status == kIOReturnSuccess )
+		{
+			clientIterator = fPrimary->getClientIterator();
+			if( clientIterator == NULL )
+				status = kIOReturnError;
+		}
+		
+		if( status == kIOReturnSuccess )
+		{
+			clientIterator->reset();
+			
+			while( (client = clientIterator->getNextObject()) ) 
+			{
+				IOFireWireUnit * unit;
+				
+				unit = OSDynamicCast( IOFireWireUnit, client );
+				if( unit )
+				{
+					unit->setTerminationState( kTerminated );
+				}
+			}
+		}
+		
+		if( clientIterator != NULL )
+		{
+			clientIterator->release();
+		}
+	}
+	
+	FWKLOGASSERT( status == kIOReturnSuccess );
+}
+
+// setMaxSpeed
+//
+//
+
+void IOFireWireDeviceAux::setMaxSpeed( IOFWSpeed speed )
+{
+	fPrimary->fControl->closeGate();
+
+	fMaxSpeed = speed;
+	
+	((IOFireWireDevice*)fPrimary)->configureNode();
+
+	fPrimary->fControl->openGate();
+}
+
+// setUnitCount
+//
+//
+
+void IOFireWireDeviceAux::setUnitCount( UInt32 count )
+{
+	fUnitCount = count;
+}
+
+// getUnitCount
+//
+//
+
+UInt32 IOFireWireDeviceAux::getUnitCount( void )
+{
+	return fUnitCount;
+}
+
+// free
+//
+//
+
+void IOFireWireDeviceAux::free()
+{	    
+	IOFireWireNubAux::free();
+}
+
+#pragma mark -
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 OSDefineMetaClassAndStructors(IOFireWireDevice, IOFireWireNub)
@@ -219,6 +350,26 @@ bool IOFireWireDevice::init(OSDictionary *propTable, const IOFWNodeScan *info)
     }
     fROMLock = IORecursiveLockAlloc();
     return fROMLock != NULL;
+}
+
+// createAuxiliary
+//
+// virtual method for creating auxiliary object.  subclasses needing to subclass 
+// the auxiliary object can override this.
+
+IOFireWireNubAux * IOFireWireDevice::createAuxiliary( void )
+{
+	IOFireWireDeviceAux * auxiliary;
+    
+	auxiliary = new IOFireWireDeviceAux;
+
+    if( auxiliary != NULL && !auxiliary->init(this) ) 
+	{
+        auxiliary->release();
+        auxiliary = NULL;
+    }
+	
+    return auxiliary;
 }
 
 void IOFireWireDevice::terminateDevice(void *refcon)
@@ -721,6 +872,7 @@ void IOFireWireDevice::preprocessDirectories( OSDictionary * rootPropTable, OSSe
 {
 	OSObject * modelNameProperty = rootPropTable->getObject( gFireWireProduct_Name );
 	OSObject * vendorNameProperty = rootPropTable->getObject( gFireWireVendor_Name );
+	OSObject * modelIDProperty = rootPropTable->getObject( gFireWireModel_ID );
 
 	OSIterator * iterator = OSCollectionIterator::withCollection( unitSet );
 	iterator->reset();
@@ -738,6 +890,14 @@ void IOFireWireDevice::preprocessDirectories( OSDictionary * rootPropTable, OSSe
 			propTable->setObject( gFireWireProduct_Name, modelNameProperty );
 		}
 
+		// if the unit doesn't have a model ID property, but the device does
+		// then copy the property from the device
+		OSObject * unitModelIDProperty = propTable->getObject( gFireWireModel_ID );
+		if( unitModelIDProperty == NULL && modelIDProperty != NULL )
+		{
+			propTable->setObject( gFireWireModel_ID, modelIDProperty );
+		}
+		
 		// copy the vendor name (if any) from the device to the unit
 		if( vendorNameProperty )
 		{
@@ -756,6 +916,9 @@ void IOFireWireDevice::preprocessDirectories( OSDictionary * rootPropTable, OSSe
 IOReturn IOFireWireDevice::readRootDirectory( IOConfigDirectory * directory, OSDictionary * propTable )
 {
 	IOReturn status = kIOReturnSuccess;
+	
+	UInt32 	modelID = 0;
+	bool	modelIDPresent = false;
 	
 	OSString * modelName = NULL;
 	OSString * vendorName = NULL;
@@ -789,12 +952,14 @@ IOReturn IOFireWireDevice::readRootDirectory( IOConfigDirectory * directory, OSD
 	if( status == kIOReturnSuccess )
 	{
 		IOReturn 	result = kIOReturnSuccess;
-		UInt32		modelID = 0;
 		
 		result = directory->getKeyValue( kConfigModelIdKey, modelID, &modelName );
 
 		if( result == kIOFireWireConfigROMInvalid )
 			status = result;
+		
+		if( result == kIOReturnSuccess )
+			modelIDPresent = true;
 	}
 
 	// model and vendor
@@ -820,13 +985,14 @@ IOReturn IOFireWireDevice::readRootDirectory( IOConfigDirectory * directory, OSD
 		
 		if( result == kIOReturnSuccess )
 		{
-			UInt32		modelID = 0;
-			
 			result = unit->getKeyValue( kConfigModelIdKey, modelID, &t );
 	
 			if( result == kIOFireWireConfigROMInvalid )
 				status = result;
 	
+			if( result == kIOReturnSuccess )
+				modelIDPresent = true;
+				
 			if( result == kIOReturnSuccess && t != NULL )
 			{
 				if( modelName )
@@ -850,6 +1016,16 @@ IOReturn IOFireWireDevice::readRootDirectory( IOConfigDirectory * directory, OSD
         
 		modelName->release();
     }
+	
+	if( modelIDPresent )
+	{
+		if( status == kIOReturnSuccess )
+		{
+			OSObject *prop = OSNumber::withNumber(modelID, 32);
+			propTable->setObject(gFireWireModel_ID, prop);
+			prop->release();
+		}
+	}
 	
 	if( vendorName != NULL )
 	{
@@ -926,11 +1102,12 @@ IOReturn IOFireWireDevice::readUnitDirectories( IOConfigDirectory * directory, O
 		{
 			IOConfigDirectory * unit = NULL;
 		
-            while( unit = OSDynamicCast( IOConfigDirectory, unitDirs->getNextObject() ) )
+            while( (unit = OSDynamicCast(IOConfigDirectory, unitDirs->getNextObject())) )
 			{
                 UInt32 		unitSpecID = 0;
                 UInt32 		unitSoftwareVersion = 0;
                 UInt32		modelID = 0;
+				bool		modelIDPresent = false;
 				OSString *	t = NULL;
 		
                 result = unit->getKeyValue(kConfigUnitSpecIdKey, unitSpecID);
@@ -940,6 +1117,9 @@ IOReturn IOFireWireDevice::readUnitDirectories( IOConfigDirectory * directory, O
 				if( result == kIOReturnSuccess )
 					result = unit->getKeyValue(kConfigModelIdKey, modelID, &t);
                 
+				if( result == kIOReturnSuccess )
+					modelIDPresent = true;
+					
 				if( result == kIOFireWireConfigROMInvalid )
 					status = result;
 			
@@ -977,6 +1157,13 @@ IOReturn IOFireWireDevice::readUnitDirectories( IOConfigDirectory * directory, O
 						if( modelName )
 							propTable->setObject(gFireWireProduct_Name, modelName);
 		
+						if( modelIDPresent )
+						{
+							prop = OSNumber::withNumber(modelID, 32);
+							propTable->setObject(gFireWireModel_ID, prop);
+							prop->release();
+						}
+						
 						prop = OSNumber::withNumber(unitSpecID, 32);
 						propTable->setObject(gFireWireUnit_Spec_ID, prop);
 						prop->release();
@@ -1074,6 +1261,10 @@ IOReturn IOFireWireDevice::processUnitDirectories( OSSet * unitSet )
 	
 	if( status == kIOReturnSuccess )
 	{	
+		UInt32 count = unitSet->getCount();
+		//IOLog( "IOFireWireDevice::processUnitDirectories - unit_count = %ld\n", count );
+		setUnitCount( count );
+		
 		iterator = OSCollectionIterator::withCollection( unitSet );
 		iterator->reset();
 		
@@ -1094,22 +1285,46 @@ IOReturn IOFireWireDevice::processUnitDirectories( OSSet * unitSet )
 				while( (client = clientIterator->getNextObject()) ) 
 				{
 					found = OSDynamicCast(IOFireWireUnit, client);
-					if( found && found->matchPropertyTable(propTable) ) 
+					if( found )
 					{
-						break;
-					}
-					else
-					{
-						found = NULL;
+						// sync with open close routines on unit
+						
+						found->lockForArbitration();  
+											
+						if( (found->getTerminationState() != kTerminated) && found->matchPropertyTable(propTable) ) 
+						{
+							// arbitration lock still held
+							
+							break;
+						}
+						else
+						{
+							found->unlockForArbitration();
+							
+							found = NULL;
+						}
+						
 					}
 				}
 				
 				if( found )
 				{
+					// arbitration lock still held
+					
+					if( found->getTerminationState() == kNeedsTermination )
+					{
+						found->setTerminationState( kNotTerminated );
+					}
+					
+					found->unlockForArbitration();
+										
 					found->setConfigDirectory( unit );
+
 					clientSet->removeObject( found );
+					
 					break;
 				}
+
 		
 				newDevice = new IOFireWireUnit;
 		
@@ -1139,6 +1354,30 @@ IOReturn IOFireWireDevice::processUnitDirectories( OSSet * unitSet )
 	{
 		iterator->release();
 	}
+	
+	//
+	// destroy any units that have disappeared
+	//
+	
+	if( status == kIOReturnSuccess )
+	{
+		clientIterator->reset();
+		while( (client = clientIterator->getNextObject()) ) 
+		{
+			IOFireWireUnit * unit;
+			
+			unit = OSDynamicCast(IOFireWireUnit, client);
+			
+			if( unit )
+			{
+				unit->terminateUnit();
+			}
+		}
+	}
+	
+	//
+	// cleanup
+	//
 	
 	if( clientIterator != NULL )
 	{
@@ -1197,22 +1436,42 @@ bool IOFireWireDevice::matchPropertyTable(OSDictionary * table)
 
 #pragma mark -
 
+// message
+//
+//
+
 IOReturn IOFireWireDevice::message( UInt32 mess, IOService * provider,
                                     void * argument )
 {
     // Propagate bus reset start/end messages
     if( kIOFWMessageServiceIsRequestingClose == mess ) 
     {
+		fDeviceROM->setROMState( IOFireWireROMCache::kROMStateInvalid ) ;
+		
         messageClients( mess );
         return kIOReturnSuccess;
     }
-    
+
+	if( kIOFWMessagePowerStateChanged == mess )
+	{
+		messageClients( mess );
+		return kIOReturnSuccess;
+	}
+
+	if( kIOFWMessageTopologyChanged == mess )
+	{
+		messageClients( mess );
+		return kIOReturnSuccess;
+	}
+	    
     return IOService::message(mess, provider, argument );
 }
 
-/**
- ** Open / Close methods
- **/
+ #pragma mark -
+
+/////////////////////////////////////////////////////////////////////////////
+// open / close
+//
  
  // we override these two methods to allow a reference counted open from
  // IOFireWireUnits only.  Exclusive access is enforced for non-Unit clients.
@@ -1223,6 +1482,8 @@ IOReturn IOFireWireDevice::message( UInt32 mess, IOService * provider,
  
 bool IOFireWireDevice::handleOpen( IOService * forClient, IOOptionBits options, void * arg )
 {
+	// arbitration lock is held
+
     bool ok = true;
     
     IOFireWireUnit * unitClient = OSDynamicCast( IOFireWireUnit, forClient );
@@ -1275,6 +1536,8 @@ bool IOFireWireDevice::handleOpen( IOService * forClient, IOOptionBits options, 
 
 void IOFireWireDevice::handleClose( IOService * forClient, IOOptionBits options )
 {
+	// arbitration lock is held
+
     IOFireWireUnit * unitClient = OSDynamicCast( IOFireWireUnit, forClient );
     if( unitClient != NULL )
     {
@@ -1287,8 +1550,10 @@ void IOFireWireDevice::handleClose( IOService * forClient, IOOptionBits options 
                 IOService::handleClose( this, options );
                 
                 // terminate if we're no longer on the bus and haven't already been terminated.
-                if( fNodeID == kFWBadNodeID && !isInactive() ) {
-                    IOCreateThread(terminateDevice, this);
+                if( getTerminationState() == kNeedsTermination ) 
+				{
+					setTerminationState( kTerminated );
+                    IOCreateThread( terminateDevice, this );
                 }
             }
         }
@@ -1301,9 +1566,12 @@ void IOFireWireDevice::handleClose( IOService * forClient, IOOptionBits options 
             IOService::handleClose( forClient, options );
             
             // terminate if we're no longer on the bus
-            if( fNodeID == kFWBadNodeID && !isInactive() )
+			if( getTerminationState() == kNeedsTermination ) 
+			{
+				setTerminationState( kTerminated );
                 IOCreateThread(terminateDevice, this);
-        }
+			}
+		}
     }
 }
 
@@ -1313,6 +1581,8 @@ void IOFireWireDevice::handleClose( IOService * forClient, IOOptionBits options 
 
 bool IOFireWireDevice::handleIsOpen( const IOService * forClient ) const
 {
+	// arbitration lock is held
+
     if( forClient == NULL )
     {
         return (fOpenFromUnitCount != 0 || fOpenFromDevice);
@@ -1390,17 +1660,57 @@ UInt32 IOFireWireDevice::getNodeFlags( void )
 
 IOReturn IOFireWireDevice::configureNode( void )
 {
+	fControl->closeGate();
+
 	if( fNodeID != kFWBadNodeID )
     {
+		//
 		// handle physical filter configuration
+		//
+		
 		configurePhysicalFilter();
 
+		//
+		// configure retry on ack d
+		//
+		
 		if( fNodeFlags & kIOFWEnableRetryOnAckD )
 		{
 			IOFireWireLink * fwim = fControl->getLink();
 			fwim->setNodeFlags( fNodeID & 0x3f, kIOFWNodeFlagRetryOnAckD );
 		}
-    }
+		
+		//
+		// limit speed if necessary
+		//
+		
+		IOFWSpeed currentSpeed = FWSpeed();
+		IOFWSpeed maxSpeed = ((IOFireWireDeviceAux*)fAuxiliary)->fMaxSpeed;
+		if( currentSpeed > maxSpeed )
+		{
+			fControl->setNodeSpeed( fNodeID, maxSpeed );
+		}
+
+		//
+		// tell controller to use half size packets
+		//
+		
+		if( fNodeFlags & kIOFWLimitAsyncPacketSize )
+		{
+			fControl->useHalfSizePackets();
+		}
+		
+		//
+		// tell controller to disable this phy port on sleep
+		//
+		
+		if( fNodeFlags & kIOFWDisablePhyOnSleep && (hopCount() == 1) )
+		{
+			fControl->disablePhyPortOnSleepForNodeID( fNodeID & 0x3f );
+		}
+	}
+
+	fControl->openGate();
 	
 	return kIOReturnSuccess;
 }

@@ -56,3 +56,42 @@
 #else
 #define FWASSERTINGATE(a) do {} while (0)
 #endif
+
+#if FIRELOG > 0
+#   define DoErrorLog( x... ) { FireLog( "ERROR: " x ) ; }
+#   define DoDebugLog( x... ) { FireLog( x ) ; }
+#else
+#   define DoErrorLog( x... ) { IOLog( "ERROR: " x ) ; }
+#   define DoDebugLog( x... ) { IOLog( x ) ; }
+#endif
+
+#define ErrorLog(x...) 				DoErrorLog( x ) ;
+#define	ErrorLogCond( x, y... )		{ if (x) ErrorLog ( y ) ; }
+
+#if IOFIREWIREDEBUG > 0
+#if FIRELOG
+#	import <IOKit/firewire/IOFireLog.h>
+#endif
+#	define DebugLog(x...)			DoDebugLog( x ) ;
+#	define DebugLogCond( x, y... ) 	{ if (x) DebugLog ( y ) ; }
+#else
+#	define DebugLog(x...)
+#	define DebugLogCond( x, y... )
+#endif
+
+#define TIMEIT( doit, description ) \
+{ \
+	AbsoluteTime start, end; \
+	clock_get_uptime( & start ); \
+	{ \
+		doit ;\
+	}\
+	clock_get_uptime( & end ); \
+	SUB_ABSOLUTETIME( & end, & start ) ;\
+	UInt64 nanos ;\
+	absolutetime_to_nanoseconds( end, & nanos ) ;\
+	DebugLog("%s duration %llu us\n", "" description, nanos/1000) ;\
+}
+
+#define InfoLog(x...) {}
+

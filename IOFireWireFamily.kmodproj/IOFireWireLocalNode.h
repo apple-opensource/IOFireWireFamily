@@ -25,6 +25,15 @@
  */
 /*
 	$Log: IOFireWireLocalNode.h,v $
+	Revision 1.6  2005/02/18 22:56:53  gecko1
+	3958781 Q45C EVT: FireWire ASP reporter says port speed is 800 Mb/sec
+	
+	Revision 1.5  2003/02/20 02:00:12  collin
+	*** empty log message ***
+	
+	Revision 1.4  2003/02/17 21:47:53  collin
+	*** empty log message ***
+	
 	Revision 1.3  2002/10/18 23:29:44  collin
 	fix includes, fix cast which fails on new compiler
 	
@@ -33,20 +42,66 @@
 	
 */
 
+// public
 #import <IOKit/firewire/IOFireWireNub.h>
+
+class IOFireWireLocalNode;
+
+#pragma mark -
+
+/*! 
+	@class IOFireWireLocalNodeAux
+*/
+
+class IOFireWireLocalNodeAux : public IOFireWireNubAux
+{
+    OSDeclareDefaultStructors(IOFireWireLocalNodeAux)
+
+	friend class IOFireWireLocalNode;
+	
+protected:
+	
+	/*! 
+		@struct ExpansionData
+		@discussion This structure will be used to expand the capablilties of the class in the future.
+    */  
+	  
+    struct ExpansionData { };
+
+	/*! 
+		@var reserved
+		Reserved for future use.  (Internal use only)  
+	*/
+    
+	ExpansionData * reserved;
+
+    virtual bool init( IOFireWireLocalNode * primary );
+	virtual	void free();
+	
+private:
+    OSMetaClassDeclareReservedUnused(IOFireWireLocalNodeAux, 0);
+    OSMetaClassDeclareReservedUnused(IOFireWireLocalNodeAux, 1);
+    OSMetaClassDeclareReservedUnused(IOFireWireLocalNodeAux, 2);
+    OSMetaClassDeclareReservedUnused(IOFireWireLocalNodeAux, 3);
+	
+};
+
+#pragma mark -
 
 class IOFireWireLocalNode : public IOFireWireNub
 {
     OSDeclareDefaultStructors(IOFireWireLocalNode)
 
+	friend class IOFireWireLocalNodeAux;
+
 	/*------------------Useful info about device (also available in the registry)--------*/
-	protected:
+protected:
 
 	/*-----------Methods provided to FireWire device clients-------------*/
-	public:
+public:
 	
 		// Set up properties affected by bus reset
-		virtual void setNodeProperties(UInt32 generation, UInt16 nodeID, UInt32 *selfIDs, int numIDs);
+		virtual void setNodeProperties(UInt32 generation, UInt16 nodeID, UInt32 *selfIDs, int numIDs, IOFWSpeed maxSpeed );
 		
 		/*
 		* Standard nub initialization
@@ -65,7 +120,14 @@ class IOFireWireLocalNode : public IOFireWireNub
 		* Trick method to create protocol user clients
 		*/
 		virtual IOReturn setProperties( OSObject * properties );
+
+protected:
 	
-	protected:
+	virtual IOFireWireNubAux * createAuxiliary( void );
+
+public:
+	virtual IOReturn message( UInt32 type, IOService * provider, void * argument );
+
+protected:
 		UInt32	fOpenCount ;
 };

@@ -29,16 +29,6 @@
 
 // public
 #import <IOKit/firewire/IOFireWireNub.h>
-
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-
-OSDefineMetaClass( IOFireWireNub, IOService )
-OSDefineAbstractStructors(IOFireWireNub, IOService)
-//OSMetaClassDefineReservedUnused(IOFireWireNub, 0);
-OSMetaClassDefineReservedUnused(IOFireWireNub, 1);
-OSMetaClassDefineReservedUnused(IOFireWireNub, 2);
-OSMetaClassDefineReservedUnused(IOFireWireNub, 3);
-
 #import <IOKit/firewire/IOFireWireController.h>
 #import <IOKit/firewire/IOConfigDirectory.h>
 
@@ -52,36 +42,192 @@ OSMetaClassDefineReservedUnused(IOFireWireNub, 3);
 #import <IOKit/assert.h>
 #import <IOKit/IOMessage.h>
 
+OSDefineMetaClassAndStructors(IOFireWireNubAux, OSObject);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 0);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 1);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 2);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 3);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 4);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 5);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 6);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 7);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 8);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 9);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 10);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 11);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 12);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 13);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 14);
+OSMetaClassDefineReservedUnused(IOFireWireNubAux, 15);
+
+#pragma mark -
+
+// init
+//
+//
+
+bool IOFireWireNubAux::init( IOFireWireNub * primary )
+{
+	bool success = true;		// assume success
+	
+	// init super
+	
+    if( !OSObject::init() )
+        success = false;
+	
+	if( success )
+	{
+		fPrimary = primary;
+		fTerminationState = kNotTerminated;
+	}
+	
+	return success;
+}
+
+// free
+//
+//
+
+void IOFireWireNubAux::free()
+{	    
+	OSObject::free();
+}
+
+// hopCount
+//
+//
+
+UInt32 IOFireWireNubAux::hopCount( IOFireWireNub * nub )
+{
+	return fPrimary->fControl->hopCount( fPrimary->fNodeID, nub->fNodeID );
+}
+
+// hopCount
+//
+//
+
+UInt32 IOFireWireNubAux::hopCount( void )
+{
+	return fPrimary->fControl->hopCount( fPrimary->fNodeID );
+}
+
+// getTerminationState
+//
+//
+
+TerminationState IOFireWireNubAux::getTerminationState( void )
+{
+	return fTerminationState;
+}
+
+// setTerminationState
+//
+//
+
+void IOFireWireNubAux::setTerminationState( TerminationState state )
+{
+	fTerminationState = state;
+}
+
+#pragma mark -
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-bool IOFireWireNub::init(OSDictionary * propTable)
+OSDefineMetaClass( IOFireWireNub, IOService )
+OSDefineAbstractStructors(IOFireWireNub, IOService)
+//OSMetaClassDefineReservedUnused(IOFireWireNub, 0);
+//OSMetaClassDefineReservedUnused(IOFireWireNub, 1);
+OSMetaClassDefineReservedUnused(IOFireWireNub, 2);
+OSMetaClassDefineReservedUnused(IOFireWireNub, 3);
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+// init
+//
+//
+
+bool IOFireWireNub::init( OSDictionary * propTable )
 {
+	bool success = true;
+	
     OSNumber *offset;
-    if( !IOService::init(propTable))
-        return false;
+    
+	if( !IOService::init(propTable) )
+	{
+		success = false;
+	}
 
-    offset = OSDynamicCast(OSNumber, propTable->getObject("GUID"));
-    if(offset)
-        fUniqueID = offset->unsigned64BitValue();
+	if( success )
+	{
+		fAuxiliary = createAuxiliary();
+		if( fAuxiliary == NULL )
+			success = false;
+	}
 
-	fConfigDirectorySet = OSSet::withCapacity(1);
-	if( fConfigDirectorySet == NULL )
-		return false;
-
-    return true;
+	if( success )
+	{
+		offset = OSDynamicCast(OSNumber, propTable->getObject("GUID"));
+		if( offset )
+			fUniqueID = offset->unsigned64BitValue();
+	
+		fConfigDirectorySet = OSSet::withCapacity(1);
+		if( fConfigDirectorySet == NULL )
+			success = false;
+	}
+	
+    return success;
 }
+
+// createAuxiliary
+//
+// virtual method for creating auxiliary object.  subclasses needing to subclass 
+// the auxiliary object can override this.
+
+IOFireWireNubAux * IOFireWireNub::createAuxiliary( void )
+{
+	IOFireWireNubAux * auxiliary;
+    
+	auxiliary = new IOFireWireNubAux;
+
+    if( auxiliary != NULL && !auxiliary->init(this) ) 
+	{
+        auxiliary->release();
+        auxiliary = NULL;
+    }
+	
+    return auxiliary;
+}
+
+// free
+//
+//
 
 void IOFireWireNub::free()
 {
-    if(fDirectory)
+    if( fDirectory != NULL )
+	{
         fDirectory->release();
+		fDirectory = NULL;
+	}
 	
-	if( fConfigDirectorySet )
+	if( fConfigDirectorySet != NULL )
+	{
 		fConfigDirectorySet->release();
+		fConfigDirectorySet = NULL;
+	}
 		
-    if(fControl)
-        fControl->release();
+	if( fAuxiliary != NULL )
+	{
+		fAuxiliary->release();
+		fAuxiliary = NULL;
+	}
 
+    if( fControl != NULL )
+	{
+        fControl->release();
+		fControl = NULL;
+	}
+		
     IOService::free();
 }
 
@@ -108,25 +254,38 @@ IOReturn IOFireWireNub::getNodeIDGeneration(UInt32 &generation, UInt16 &nodeID) 
 	return kIOReturnSuccess;
 }
 
+// FWSpeed
+//
+//
+
 IOFWSpeed IOFireWireNub::FWSpeed() const
 {
     return fControl->FWSpeed(fNodeID);
 }
 
+// FWSpeed
+//
 // How fast can this node talk to another node?
+
 IOFWSpeed IOFireWireNub::FWSpeed(const IOFireWireNub *dst) const
 {
     return fControl->FWSpeed(fNodeID, dst->fNodeID);
 }
 
+// maxPackLog
+//
 // How big (as a power of two) can packets sent to the node be?
+
 int IOFireWireNub::maxPackLog(bool forSend) const
 {
     int log = fControl->maxPackLog(forSend, fNodeID);
     return log;
 }
 
+// maxPackLog
+//
 // How big (as a power of two) can packets sent to an address in the node be?
+
 int IOFireWireNub::maxPackLog(bool forSend, FWAddress address) const
 {
     int log = fControl->maxPackLog(forSend, fNodeID);
@@ -146,7 +305,10 @@ int IOFireWireNub::maxPackLog(bool forSend, FWAddress address) const
     return log;
 }
 
+// maxPackLog
+//
 // How big (as a power of two) can packets sent between nodes be?
+
 int IOFireWireNub::maxPackLog(bool forSend, const IOFireWireNub *dst) const
 {
     int log;
@@ -160,6 +322,10 @@ int IOFireWireNub::maxPackLog(bool forSend, const IOFireWireNub *dst) const
     return log;
 }
 
+// setMaxPackLog
+//
+//
+
 void IOFireWireNub::setMaxPackLog(bool forSend, bool forROM, int maxPackLog)
 {
     if(forSend)
@@ -169,6 +335,10 @@ void IOFireWireNub::setMaxPackLog(bool forSend, bool forROM, int maxPackLog)
     else
         fMaxReadPackLog = maxPackLog;
 }
+
+// createReadCommand
+//
+//
 
 IOFWReadCommand *IOFireWireNub::createReadCommand(FWAddress devAddress, IOMemoryDescriptor *hostMem,
 				FWDeviceCallback completion, void *refcon,
@@ -186,6 +356,10 @@ IOFWReadCommand *IOFireWireNub::createReadCommand(FWAddress devAddress, IOMemory
     return cmd;
 }
 
+// createReadQuadCommand
+//
+//
+
 IOFWReadQuadCommand *IOFireWireNub::createReadQuadCommand(FWAddress devAddress, UInt32 *quads, int numQuads,
 				FWDeviceCallback completion, void *refcon,
  				bool failOnReset)
@@ -202,21 +376,32 @@ IOFWReadQuadCommand *IOFireWireNub::createReadQuadCommand(FWAddress devAddress, 
     return cmd;
 }
 
+// createWriteCommand
+//
+//
+
 IOFWWriteCommand *IOFireWireNub::createWriteCommand(FWAddress devAddress, IOMemoryDescriptor *hostMem,
 				FWDeviceCallback completion, void *refcon,
  				bool failOnReset)
 {
     IOFWWriteCommand * cmd;
     cmd = new IOFWWriteCommand;
-    if(cmd) {
+    if(cmd) 
+	{
         if(!cmd->initAll(this, devAddress, hostMem,
-                         completion, refcon, failOnReset)) {
+                         completion, refcon, failOnReset)) 
+		{
             cmd->release();
             cmd = NULL;
-	}
+		}
     }
+	
     return cmd;
 }
+
+// createWriteQuadCommand
+//
+//
 
 IOFWWriteQuadCommand *IOFireWireNub::createWriteQuadCommand(FWAddress devAddress, 
 				UInt32 *quads, int numQuads,
@@ -225,15 +410,22 @@ IOFWWriteQuadCommand *IOFireWireNub::createWriteQuadCommand(FWAddress devAddress
 {
     IOFWWriteQuadCommand * cmd;
     cmd = new IOFWWriteQuadCommand;
-    if(cmd) {
+    if(cmd) 
+	{
         if(!cmd->initAll(this, devAddress, quads, numQuads,
-		completion, refcon, failOnReset)) {
+		completion, refcon, failOnReset)) 
+		{
             cmd->release();
             cmd = NULL;
-	}
+		}
     }
+	
     return cmd;
 }
+
+// createCompareAndSwapCommand
+//
+//
 
 IOFWCompareAndSwapCommand *
 IOFireWireNub::createCompareAndSwapCommand(FWAddress devAddress, const UInt32 *cmpVal, const UInt32 *newVal,
@@ -241,12 +433,15 @@ IOFireWireNub::createCompareAndSwapCommand(FWAddress devAddress, const UInt32 *c
 {
     IOFWCompareAndSwapCommand * cmd;
     cmd = new IOFWCompareAndSwapCommand;
-    if(cmd) {
-        if(!cmd->initAll(this, devAddress, cmpVal, newVal, size, completion, refcon, failOnReset)) {
+    if(cmd) 
+	{
+        if(!cmd->initAll(this, devAddress, cmpVal, newVal, size, completion, refcon, failOnReset)) 
+		{
             cmd->release();
             cmd = NULL;
-	}
+		}
     }
+	
     return cmd;
 }
 
@@ -254,16 +449,28 @@ IOFireWireNub::createCompareAndSwapCommand(FWAddress devAddress, const UInt32 *c
  * Create local FireWire address spaces for the device to access
  */
 
+// createPhysicalAddressSpace
+//
+//
+
 IOFWPhysicalAddressSpace *IOFireWireNub::createPhysicalAddressSpace(IOMemoryDescriptor *mem)
 {
     return fControl->createPhysicalAddressSpace(mem);
 }
+
+// createPseudoAddressSpace
+//
+//
 
 IOFWPseudoAddressSpace *IOFireWireNub::createPseudoAddressSpace(FWAddress *addr, UInt32 len, 
 				FWReadCallback reader, FWWriteCallback writer, void *refcon)
 {
     return fControl->createPseudoAddressSpace(addr, len, reader, writer, refcon);
 }
+
+// getConfigDirectory
+//
+//
 
 IOReturn IOFireWireNub::getConfigDirectory(IOConfigDirectory *&dir)
 {
@@ -273,6 +480,10 @@ IOReturn IOFireWireNub::getConfigDirectory(IOConfigDirectory *&dir)
 	return kIOReturnSuccess;    
 }
 
+// getConfigDirectoryRef
+//
+//
+
 IOReturn IOFireWireNub::getConfigDirectoryRef( IOConfigDirectory *&dir )
 {
     dir = fDirectory;
@@ -280,6 +491,10 @@ IOReturn IOFireWireNub::getConfigDirectoryRef( IOConfigDirectory *&dir )
 	
     return kIOReturnSuccess;    
 }
+
+// setConfigDirectory
+//
+//
 
 IOReturn IOFireWireNub::setConfigDirectory( IOConfigDirectory *directory )
 {
@@ -325,6 +540,10 @@ const CSRNodeUniqueID& IOFireWireNub::getUniqueID() const
  ** IOUserClient methods
  **/
 
+// newUserClient
+//
+//
+
 IOReturn IOFireWireNub::newUserClient(task_t		owningTask,
                                       void * 		/* security_id */,
                                       UInt32  		type,
@@ -337,11 +556,18 @@ IOReturn IOFireWireNub::newUserClient(task_t		owningTask,
     if( type != 11 )
         return( kIOReturnBadArgument);
 
+	if( isInactive() )
+	{
+		return kIOReturnNoMemory;
+	}
+	
     client = IOFireWireUserClient::withTask(owningTask);
 
     if( !client || (false == client->attach( this )) ||
-        (false == client->start( this )) ) {
-        if(client) {
+        (false == client->start( this )) ) 
+	{
+        if(client) 
+		{
             client->detach( this );
             client->release();
         }
@@ -352,13 +578,25 @@ IOReturn IOFireWireNub::newUserClient(task_t		owningTask,
     return( err );
 }
 
+// setNodeFlags
+//
+//
+
 void IOFireWireNub::setNodeFlags( UInt32 flags )
 {
 }
 
+// clearNodeFlags
+//
+//
+
 void IOFireWireNub::clearNodeFlags( UInt32 flags )
 {
 }
+
+// getNodeFlags
+//
+//
 
 UInt32 IOFireWireNub::getNodeFlags( void )
 {

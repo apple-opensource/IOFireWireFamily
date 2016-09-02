@@ -53,9 +53,10 @@ class IOFWPseudoAddressSpaceAux : public IOFWAddressSpaceAux
 
 	friend class IOFWAddressSpace;
 	friend class IOFWPseudoAddressSpace;
-	
+	friend class IOFireWireController;
+		
 protected:
-
+	
     struct MemberVariables 
 	{ 		
 		IOFWARxReqIntCompleteHandler		fARxReqIntCompleteHandler;
@@ -63,21 +64,25 @@ protected:
 	};
 	  
     MemberVariables * fMembers;
-		
-public:
 
-    virtual bool init( IOFWAddressSpace * primary );
+public:
+     
+	virtual bool init( IOFWAddressSpace * primary );
 	virtual	void free();
 
 protected:
 
-	virtual void handleARxReqIntComplete();
-
-public:
+	bool createMemberVariables( void );
+	void destroyMemberVariables( void );
 	
+	virtual void handleARxReqIntComplete();
+	
+public:
+
 	virtual void setARxReqIntCompleteHandler( void * refcon, IOFWARxReqIntCompleteHandler handler );
 	
 private:
+
     OSMetaClassDeclareReservedUsed(IOFWPseudoAddressSpaceAux, 0);
     OSMetaClassDeclareReservedUsed(IOFWPseudoAddressSpaceAux, 1);
     OSMetaClassDeclareReservedUnused(IOFWPseudoAddressSpaceAux, 2);
@@ -103,6 +108,7 @@ class IOFWPseudoAddressSpace : public IOFWAddressSpace
 	friend class IOFireWireController;
 	
 protected:
+
     IOMemoryDescriptor*	fDesc;
     void *				fRefCon;
     FWReadCallback		fReader;
@@ -122,6 +128,9 @@ protected:
     static	OSData *	allocatedAddresses; // unused
     
     virtual	void 					free();
+	
+public:
+
     static 	UInt32 					simpleReader(
 											void*					refcon,
 											UInt16 					nodeID,
@@ -140,6 +149,7 @@ protected:
 											UInt32 					len,
 											const void*				buf,
                                             IOFWRequestRefCon		reqrefcon);
+protected:
 
     // Get a unique address range
     IOReturn						allocateAddress(
@@ -151,6 +161,7 @@ protected:
 											UInt32 					len);
 
 public:
+
     static IOFWPseudoAddressSpace*	readWrite(
 											FWAddress 				addr,
 											UInt32 					len, 
@@ -230,8 +241,9 @@ protected:
 public:
 	inline void setARxReqIntCompleteHandler( void * refcon, IOFWARxReqIntCompleteHandler handler )
 		{ ((IOFWPseudoAddressSpaceAux*)fIOFWAddressSpaceExpansion->fAuxiliary)->setARxReqIntCompleteHandler( refcon, handler ); }
-    	
+			
 private:
+
     OSMetaClassDeclareReservedUnused(IOFWPseudoAddressSpace, 0);
     OSMetaClassDeclareReservedUnused(IOFWPseudoAddressSpace, 1);
     

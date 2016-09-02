@@ -31,12 +31,86 @@
 #ifndef _IOKIT_IOFIREWIRENUB_H
 #define _IOKIT_IOFIREWIRENUB_H
 
+// public
 #include <IOKit/IOService.h>
 #include <IOKit/firewire/IOFWCommand.h>
 #include <IOKit/firewire/IOFWAddressSpace.h>
+
 class IOFireWireController;
 class IOFireWireBus;
 class IOConfigDirectory;
+class IOFireWireNub;
+class IOFireWireDevice;
+class IOFireWireUnit;
+
+enum TerminationState
+{
+	kNotTerminated = 0,
+	kNeedsTermination,
+	kTerminated
+};
+
+#pragma mark -
+
+/*! 
+	@class IOFireWireNubAux
+*/
+
+class IOFireWireNubAux : public OSObject
+{
+    OSDeclareDefaultStructors(IOFireWireNubAux)
+
+	friend class IOFireWireNub;
+	
+protected:
+	
+	IOFireWireNub * 		fPrimary;
+	TerminationState		fTerminationState;
+	
+	/*! 
+		@struct ExpansionData
+		@discussion This structure will be used to expand the capablilties of the class in the future.
+    */  
+	  
+    struct ExpansionData { };
+
+	/*! 
+		@var reserved
+		Reserved for future use.  (Internal use only)  
+	*/
+    
+	ExpansionData * reserved;
+
+    virtual bool init( IOFireWireNub * primary );
+	virtual	void free();
+
+	virtual UInt32 hopCount( IOFireWireNub * nub );
+	virtual UInt32 hopCount( void );
+	
+	virtual TerminationState getTerminationState( void );
+	virtual void setTerminationState( TerminationState state );
+	
+private:
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 0);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 1);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 2);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 3);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 4);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 5);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 6);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 7);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 8);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 9);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 10);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 11);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 12);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 13);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 14);
+    OSMetaClassDeclareReservedUnused(IOFireWireNubAux, 15);
+	
+};
+
+#pragma mark -
 
 /*! @class IOFireWireNub
 */
@@ -45,7 +119,12 @@ class IOFireWireNub : public IOService
     OSDeclareAbstractStructors(IOFireWireNub)
 
     friend class IOFireWireController;
-    
+    friend class IOFireWireNubAux;
+	friend class IOFireWireDeviceAux;
+	friend class IOFireWireUnitAux;
+	friend class IOFireWireDevice;
+	friend class IOFireWireUnit;
+   
 /*------------------Useful info about device (also available in the registry)--------*/
 protected:
     int			fDeviceSpeed;	// Max supported by device
@@ -69,6 +148,8 @@ protected:
     UInt32		fNodeFlags;
     
 	OSSet *	 fConfigDirectorySet;
+
+	IOFireWireNubAux * fAuxiliary;
 		
 /*! @struct ExpansionData
     @discussion This structure will be used to expand the capablilties of the class in the future.
@@ -172,10 +253,25 @@ public:
 	virtual IOReturn setConfigDirectory( IOConfigDirectory *directory );
 
     virtual IOReturn getConfigDirectoryRef( IOConfigDirectory *&dir );
-	    
+
+	inline UInt32 hopCount( IOFireWireNub * nub )
+		{ return fAuxiliary->hopCount( nub ); }
+		
+	inline UInt32 hopCount( void )
+		{ return fAuxiliary->hopCount(); }
+
+	inline TerminationState getTerminationState( void )
+		{ return fAuxiliary->getTerminationState(); }
+				
+protected:
+	inline void setTerminationState( TerminationState state )
+		{ fAuxiliary->setTerminationState( state ); }
+
+	virtual IOFireWireNubAux * createAuxiliary( void );
+    
 private:
     OSMetaClassDeclareReservedUsed(IOFireWireNub, 0);
-	OSMetaClassDeclareReservedUnused(IOFireWireNub, 1);
+	OSMetaClassDeclareReservedUsed(IOFireWireNub, 1);
     OSMetaClassDeclareReservedUnused(IOFireWireNub, 2);
     OSMetaClassDeclareReservedUnused(IOFireWireNub, 3);
 

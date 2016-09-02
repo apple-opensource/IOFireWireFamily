@@ -294,40 +294,18 @@ bool IOFireWireROMCache::hasROMChanged( const UInt32 * newBIB, UInt32 newBIBSize
 
 		//
 		// some devices are slow to publish their units
-		// always reconsider generation zero, unopened,
+		// always reconsider generation zero,
 		// unitless devices
 		//
 		
-		// is this a closed, generation zero device?
+		// is this a unit less, generation zero device?
 		
 		UInt32 romGeneration = (newBIB[2] & kFWBIBGeneration) >> kFWBIBGenerationPhase;
-		if( romGeneration == 0 && !fOwner->isOpen() )
+		if( romGeneration == 0 )
 		{
-			bool has_units = false;
-			
-			// does the device have any units?
-			
-			OSIterator * childIterator = fOwner->getClientIterator();
-			if( childIterator ) 
+			if( fOwner->getUnitCount() == 0 )
 			{
-				OSObject *child;
-				while( (child = childIterator->getNextObject()) ) 
-				{
-					if( OSDynamicCast(IOFireWireUnit, child) != NULL ) 
-					{
-						has_units = true;
-						break;
-					}
-				}
-				childIterator->release();
-			}
-		
-			if( !has_units )
-			{
-				// if we've got a closed generation zero device with no 
-				// units we can't assume its the same
-				
-				rom_changed = true; 
+				rom_changed = true;
 			}
 		}
 	}
@@ -540,6 +518,7 @@ IOReturn IOFireWireROMCache::updateROMCache( UInt32 offset, UInt32 length )
 			buff = (UInt32 *)IOMalloc(bufLen);
 			cmd = fOwner->createReadQuadCommand( FWAddress(kCSRRegisterSpaceBaseAddressHi, kFWBIBHeaderAddress+romLength),
 												buff, bufLen/sizeof(UInt32), NULL, NULL, true );
+			cmd->setMaxSpeed( kFWSpeed100MBit );
 			cmd->setGeneration( generation );
 			status = cmd->submit();
 			cmd->release();

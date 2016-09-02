@@ -9,8 +9,10 @@
 
 #import "IOFireWireLibIsochChannel.h"
 #import "IOFireWireLibIsochPort.h"
+#import "IOFireWireLibDevice.h"
+#import "IOFireWireLibPriv.h"
+
 #import <IOKit/iokitmig.h>
-#import <exception>
 
 namespace IOFireWireLib {
 
@@ -18,7 +20,7 @@ namespace IOFireWireLib {
 	// IsochChannel
 	// ============================================================
 	
-	IsochChannel::IsochChannel( IUnknownVTbl* interface, Device& userclient, bool inDoIRM, IOByteCount inPacketSize, IOFWSpeed inPrefSpeed)
+	IsochChannel::IsochChannel( const IUnknownVTbl & interface, Device& userclient, bool inDoIRM, IOByteCount inPacketSize, IOFWSpeed inPrefSpeed)
 	: IOFireWireIUnknown( interface ), 
 	  mUserClient( userclient ),
 	  mKernChannelRef(0),
@@ -31,7 +33,7 @@ namespace IOFireWireLib {
 	  mPrefSpeed( inPrefSpeed )
 	{
 		if (!mListeners)
-			throw;//return kIOReturnNoMemory ;
+			throw kIOReturnNoMemory ;
 
 		mUserClient.AddRef() ;
 
@@ -39,7 +41,9 @@ namespace IOFireWireLib {
 								kIsochChannel_Allocate, 3, 1, inDoIRM, inPacketSize, inPrefSpeed, 
 								& mKernChannelRef) ;
 		if(err)
-			throw ;//err !!!
+		{
+			throw err ;
+		}
 	}
 	
 
@@ -50,8 +54,8 @@ namespace IOFireWireLib {
 		
 		if (mKernChannelRef)
 		{
-			::IOConnectMethodScalarIScalarO( mUserClient.GetUserClientConnection(), kIsochChannel_Release, 1, 0, 
-					mKernChannelRef ) ;
+			IOConnectMethodScalarIScalarO(  mUserClient.GetUserClientConnection(), 
+											kReleaseUserObject, 1, 0, mKernChannelRef ) ;
 			mKernChannelRef = 0 ;
 		}
 	
@@ -60,7 +64,7 @@ namespace IOFireWireLib {
 	
 		if (mListeners)
 		{
-			for( CFIndex index = 0; index < ::CFArrayGetCount( mListeners ); ++index )
+			for( CFIndex index = 0, count = ::CFArrayGetCount( mListeners ); index < count; ++index )
 			{
 				IOFireWireLibIsochPortRef	port = (IOFireWireLibIsochPortRef) CFArrayGetValueAtIndex(mListeners, index) ;
 				(**port).Release( port ) ;
@@ -71,15 +75,15 @@ namespace IOFireWireLib {
 		mUserClient.Release() ;
 	}
 	
-	void
-	IsochChannel::ForceStop( ChannelRef refCon, IOReturn result, void** args, int numArgs )
-	{
-		IsochChannel*	me = (IsochChannel*) args[0] ;
-	
-		if (me->mForceStopHandler)
-			(me->mForceStopHandler)(me->mRefInterface, (UInt32)args[1]) ;	// reason
-		
-	}
+//	void
+//	IsochChannel::ForceStop( ChannelRef refCon, IOReturn result, void** args, int numArgs )
+//	{
+//		IsochChannel*	me = (IsochChannel*) args[0] ;
+//	
+//		if (me->mForceStopHandler)
+//			(me->mForceStopHandler)(me->mRefInterface, (UInt32)args[1]) ;	// reason
+//		
+//	}
 	
 	IOReturn
 	IsochChannel::SetTalker(
@@ -88,6 +92,16 @@ namespace IOFireWireLib {
 		(**inTalker).AddRef( inTalker ) ;
 		mTalker	= inTalker ;
 		
+		IsochPort * port = dynamic_cast<LocalIsochPort*>( IOFireWireIUnknown::InterfaceMap<IsochPort>::GetThis( inTalker ) ) ;
+		
+		if ( port )
+		{
+			::IOConnectMethodScalarIScalarO( mUserClient.GetUserClientConnection(), 
+											kLocalIsochPort_SetChannel,
+											2, 0,
+											port->mKernPortRef, mKernChannelRef ) ;
+		}
+
 		return kIOReturnSuccess ;
 	}
 	
@@ -97,6 +111,16 @@ namespace IOFireWireLib {
 	{
 		CFArrayAppendValue(mListeners, inListener) ;
 		(**inListener).AddRef( inListener ) ;
+
+		IsochPort * port = dynamic_cast<LocalIsochPort*>( IOFireWireIUnknown::InterfaceMap<IsochPort>::GetThis( inListener ) ) ;
+		
+		if ( port )
+		{
+			::IOConnectMethodScalarIScalarO( mUserClient.GetUserClientConnection(), 
+											kLocalIsochPort_SetChannel,
+											2, 0,
+											port->mKernPortRef, mKernChannelRef ) ;
+		}
 		
 		return kIOReturnSuccess ;
 	}
@@ -104,7 +128,7 @@ namespace IOFireWireLib {
 	IOReturn
 	IsochChannel::AllocateChannel()
 	{
-		IOFireWireLibLog_(("+ IsochChannel::AllocateChannel\n")) ;
+		DebugLog( "+ IsochChannel::AllocateChannel\n" ) ;
 	
 		IOReturn	result		= kIOReturnSuccess ;
 	
@@ -139,9 +163,12 @@ namespace IOFireWireLib {
 	
 		// call the kernel middle bits
 		result = IOConnectMethodScalarIScalarO( mUserClient.GetUserClientConnection(), 
-						kIsochChannel_UserAllocateChannelBegin, 4, 2, mKernChannelRef, mSpeed,
-						(UInt32)(allowedChans >> 32), (UInt32)(0xFFFFFFFF & allowedChans), & mSpeed,
-						& mChannel) ;
+												kIsochChannel_UserAllocateChannelBegin,
+//												mUserClient.MakeSelectorWithObject( kIsochChannel_UserAllocateChannelBegin_d, 
+//													mKernChannelRef ), 
+												4, 2, mKernChannelRef, mSpeed,
+												(UInt32)(allowedChans >> 32), (UInt32)(0xFFFFFFFF & allowedChans), & mSpeed,
+												& mChannel) ;
 	
 		if (kIOReturnSuccess == result)
 		{
@@ -164,7 +191,7 @@ namespace IOFireWireLib {
 	IOReturn
 	IsochChannel::ReleaseChannel()
 	{
-		IOFireWireLibLog_("+ IsochChannel::ReleaseChannel\n") ;
+		DebugLog("+ IsochChannel::ReleaseChannel\n") ;
 	
 		IOReturn 	result = kIOReturnSuccess ;
 		
@@ -172,7 +199,7 @@ namespace IOFireWireLib {
 			result = (**mTalker).ReleasePort( mTalker );
 		}
 	
-		IOFireWireLibLogIfErr_(result, "IsochChannel::ReleaseChannel: error 0x%08x calling ReleasePort() on talker\n", result) ;
+		DebugLogCond( result, "IsochChannel::ReleaseChannel: error 0x%08x calling ReleasePort() on talker\n", result) ;
 	
 		UInt32							listenCount	= CFArrayGetCount(mListeners) ;
 		IOFireWireLibIsochPortRef		listen ;
@@ -183,13 +210,15 @@ namespace IOFireWireLib {
 			listen = (IOFireWireLibIsochPortRef)CFArrayGetValueAtIndex(mListeners, index) ;
 			result = (**listen).ReleasePort( listen );
 	
-			IOFireWireLibLogIfErr_(result, "IsochChannel::ReleaseChannel: error %p calling ReleasePort() on listener\n", listen) ;
+			DebugLogCond(result, "IsochChannel::ReleaseChannel: error %p calling ReleasePort() on listener\n", listen) ;
 			
 			++index ;
 		}
 	
-		result = ::IOConnectMethodScalarIScalarO( mUserClient.GetUserClientConnection(),
-						kIsochChannel_UserReleaseChannelComplete, 1, 0, mKernChannelRef ) ;
+		result = ::IOConnectMethodScalarIScalarO(   mUserClient.GetUserClientConnection(),
+													mUserClient.MakeSelectorWithObject( kIsochChannel_UserReleaseChannelComplete_d, 
+													mKernChannelRef ), 
+													0, 0 ) ;
 		
 		return result ;
 	}
@@ -197,34 +226,39 @@ namespace IOFireWireLib {
 	IOReturn
 	IsochChannel::Start()
 	{
-		IOFireWireLibLog_("+ IsochChannel::Start\n") ;
+		DebugLog("+ IsochChannel::Start\n") ;
 	
 		// Start all listeners, then start the talker
 		UInt32 						listenCount = CFArrayGetCount( mListeners ) ;
 		IOFireWireLibIsochPortRef	listen ;
 		UInt32						listenIndex = 0 ;
-		IOReturn					result = kIOReturnSuccess ;
+		IOReturn					error = kIOReturnSuccess ;
 		
-		while (kIOReturnSuccess == result && listenIndex < listenCount)
+		while ( !error && listenIndex < listenCount )
 		{
 			listen = (IOFireWireLibIsochPortRef) CFArrayGetValueAtIndex( mListeners, listenIndex) ;
-			result = (**listen).Start( listen ) ;
+			error = (**listen).Start( listen ) ;
 	
-			IOFireWireLibLogIfErr_(result, "IsochChannel::Start: error 0x%x starting channel\n", result) ;
+			DebugLogCond( error, "IsochChannel::Start: error 0x%x starting channel\n", error ) ;
 				
 			++listenIndex ;
 		}
 		
-		if (mTalker)
-			(**mTalker).Start( mTalker ) ;
+		if ( mTalker && !error )
+			error = (**mTalker).Start( mTalker ) ;
 	
-		return kIOReturnSuccess;
+		if ( error )
+			Stop() ;
+	
+		DebugLog("-IsochChannel::Start error=%x\n", error) ;
+		
+		return error ;
 	}
 	
 	IOReturn
 	IsochChannel::Stop()
 	{
-		IOFireWireLibLog_(("+ IsochChannel::Stop\n")) ;
+		DebugLog( "+ IsochChannel::Stop\n" ) ;
 	
 		if (mTalker)
 			(**mTalker).Stop( mTalker ) ;
@@ -239,13 +273,34 @@ namespace IOFireWireLib {
 	
 		return kIOReturnSuccess;
 	}
-	
+
 	IOFireWireIsochChannelForceStopHandler
-	IsochChannel::SetChannelForceStopHandler(
-		IOFireWireIsochChannelForceStopHandler stopProc)
+	IsochChannel :: SetChannelForceStopHandler (
+		IOFireWireIsochChannelForceStopHandler stopProc,
+		IOFireWireLibIsochChannelRef interface )
 	{
+		DebugLog( "+IsochChannel::SetChannelForceStopHandler this=%p, proc=%p\n", this, stopProc ) ;
+	
 		IOFireWireIsochChannelForceStopHandler oldHandler = mForceStopHandler ;
 		mForceStopHandler = stopProc ;
+
+		io_connect_t connection = mUserClient.GetUserClientConnection() ;
+
+		if ( mNotifyIsOn && connection )
+		{
+			io_scalar_inband_t		params = { (UInt32) mKernChannelRef } ;
+			unsigned				size = 0 ;
+			
+			mAsyncRef[ kIOAsyncCalloutFuncIndex ] = (natural_t) mForceStopHandler ;
+			mAsyncRef[ kIOAsyncCalloutRefconIndex ] = (natural_t) interface ;
+		
+			IOReturn error = ::io_async_method_scalarI_scalarO( connection, mUserClient.GetAsyncPort(), mAsyncRef,
+																kOSAsyncRefCount, kSetAsyncRef_IsochChannelForceStop, params, 
+																1, params, & size) ;
+																
+			#pragma unused( error )
+			DebugLogCond( error, "Error setting isoch channel force stop handler\n") ;
+		}
 		
 		return oldHandler ;
 	}
@@ -270,36 +325,68 @@ namespace IOFireWireLib {
 	}
 	
 	Boolean
-	IsochChannel::TurnOnNotification()
+	IsochChannel::TurnOnNotification( IOFireWireLibIsochChannelRef interface )
 	{
-		IOReturn				err					= kIOReturnSuccess ;
-		io_connect_t			connection			= mUserClient.GetUserClientConnection() ;
-		io_scalar_inband_t		params ;
-		io_scalar_inband_t		output ;
-		mach_msg_type_number_t	size = 0 ;
-	
 		// if notification is already on, skip out.
 		if (mNotifyIsOn)
+		{
 			return true ;
+		}
+		
+		io_connect_t			connection			= mUserClient.GetUserClientConnection() ;	
 		
 		if (!connection)
-			err = kIOReturnNoDevice ;
-		
-		if ( kIOReturnSuccess == err )
 		{
-			params[0]	= (UInt32) mKernChannelRef ;
-			params[1]	= (UInt32)(IOAsyncCallback) & ForceStop ;
-			params[2]	= (UInt32) this ;
-		
-			err = ::io_async_method_scalarI_scalarO( connection, mUserClient.GetAsyncPort(), mAsyncRef,
-					1, kSetAsyncRef_IsochChannelForceStop, params, 3, output, & size) ;
-			
+			DebugLog("IsochChannel::TurnOnNotification: user client not open!\n") ;
+			return false ;
 		}
-	
-		if ( kIOReturnSuccess == err )
-			mNotifyIsOn = true ;
+		
+		IOReturn error = kIOReturnSuccess ;
+		{
+			io_scalar_inband_t		params = { (UInt32) mKernChannelRef } ;
+			io_scalar_inband_t		output ;
+			mach_msg_type_number_t	size = 0 ;
 			
-		return ( kIOReturnSuccess == err ) ;
+			mAsyncRef[ kIOAsyncCalloutFuncIndex ] = (natural_t) mForceStopHandler ;
+			mAsyncRef[ kIOAsyncCalloutRefconIndex ] = (natural_t) interface ;
+		
+			error = ::io_async_method_scalarI_scalarO( connection, mUserClient.GetAsyncPort(), mAsyncRef, 
+															kOSAsyncRefCount, kSetAsyncRef_IsochChannelForceStop, params, 
+															1, output, & size) ;
+		}
+
+		{
+			unsigned count = ::CFArrayGetCount( mListeners ) ;
+			unsigned index = 0 ;
+			while( index < count && !error )
+			{
+				// have kernel channel force stop proc call user dcl program force stop proc
+
+				LocalIsochPort * port = (LocalIsochPort*) IOFireWireIUnknown::InterfaceMap<IsochPort>::GetThis( (IsochPort*) ::CFArrayGetValueAtIndex( mListeners, index ) ) ;
+				if ( port )
+				{
+					error = ::IOConnectMethodScalarIScalarO( connection, kLocalIsochPort_SetChannel, 2, 0, port->mKernPortRef, mKernChannelRef ) ;
+				}
+				
+				++index ;
+			}
+		}
+		
+		if ( !error && mTalker )
+		{
+			LocalIsochPort * port = dynamic_cast<LocalIsochPort*>( IOFireWireIUnknown::InterfaceMap<IsochPort>::GetThis( mTalker ) ) ;
+			if ( port )
+			{
+				error = ::IOConnectMethodScalarIScalarO( connection, kLocalIsochPort_SetChannel, 2, 0, port->mKernPortRef, mKernChannelRef ) ;
+			}
+		}
+		
+		if ( !error )
+		{
+			mNotifyIsOn = true ;
+		}
+			
+		return ( error == kIOReturnSuccess ) ;
 	}
 	
 	void
@@ -308,14 +395,16 @@ namespace IOFireWireLib {
 		io_connect_t			connection			= mUserClient.GetUserClientConnection() ;
 		
 		// if notification isn't on, skip out.
-		if (!mNotifyIsOn || !connection)
+		if ( !mNotifyIsOn || !connection )
+		{
 			return ;
+		}
 		
 		io_scalar_inband_t		params = { (UInt32) mKernChannelRef, (UInt32)(IOAsyncCallback) 0, (UInt32) this } ;
 		mach_msg_type_number_t	size = 0 ;
 	
-		::io_async_method_scalarI_scalarO( connection, mUserClient.GetAsyncPort(), mAsyncRef, 1, 
-				kSetAsyncRef_Packet, params, 3, params, & size) ;
+		::io_async_method_scalarI_scalarO( connection, mUserClient.GetAsyncPort(), mAsyncRef, kOSAsyncRefCount, 
+				kSetAsyncRef_IsochChannelForceStop, params, 3, params, & size) ;
 		
 		mNotifyIsOn = false ;
 	}
@@ -327,7 +416,7 @@ namespace IOFireWireLib {
 	{
 	}
 	
-#pragma mark -	
+#pragma mark -
 	IsochChannelCOM::Interface IsochChannelCOM::sInterface = 
 	{
 		INTERFACEIMP_INTERFACE,
@@ -354,7 +443,7 @@ namespace IOFireWireLib {
 	//
 	
 	IsochChannelCOM::IsochChannelCOM( Device& userclient, bool inDoIRM, IOByteCount inPacketSize, IOFWSpeed inPrefSpeed )
-	: IsochChannel( reinterpret_cast<IUnknownVTbl*>(& sInterface), userclient, inDoIRM, inPacketSize, inPrefSpeed )
+	: IsochChannel( reinterpret_cast<const IUnknownVTbl &>( sInterface ), userclient, inDoIRM, inPacketSize, inPrefSpeed )
 	{
 	}
 	
@@ -452,7 +541,7 @@ namespace IOFireWireLib {
 	IOFireWireIsochChannelForceStopHandler
 	IsochChannelCOM::SSetChannelForceStopHandler( ChannelRef self, ForceStopHandler stopProc )
 	{
-		return IOFireWireIUnknown::InterfaceMap<IsochChannelCOM>::GetThis(self)->SetChannelForceStopHandler(stopProc) ;
+		return IOFireWireIUnknown::InterfaceMap<IsochChannelCOM>::GetThis(self)->SetChannelForceStopHandler( stopProc, self ) ;
 	}
 	
 	void
@@ -476,7 +565,7 @@ namespace IOFireWireLib {
 	Boolean
 	IsochChannelCOM::STurnOnNotification( ChannelRef self )
 	{
-		return IOFireWireIUnknown::InterfaceMap<IsochChannelCOM>::GetThis(self)->TurnOnNotification() ;
+		return IOFireWireIUnknown::InterfaceMap<IsochChannelCOM>::GetThis(self)->TurnOnNotification( self ) ;
 	}
 	
 	void

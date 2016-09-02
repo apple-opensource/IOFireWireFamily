@@ -29,12 +29,44 @@
  */
 /*
 	$Log: IOFireWireFamilyCommon.h,v $
-	Revision 1.39.8.2  2003/03/15 21:11:57  collin
-	optimizations for IP
+	Revision 1.55  2005/03/12 03:27:51  collin
+	*** empty log message ***
 	
-	Revision 1.39.8.1  2003/03/12 21:26:48  niels
-	skip cycle support for plaid
+	Revision 1.54  2005/01/12 06:34:53  collin
+	*** empty log message ***
 	
+	Revision 1.53  2004/05/04 22:52:19  niels
+	*** empty log message ***
+	
+	Revision 1.52  2004/03/26 01:42:53  gecko1
+	Add code to disable any port directly connected to an iPod when we go to sleep.
+	
+	Revision 1.51  2004/03/05 00:33:59  calderon
+	Fixed 3570909 - FireWire - iokit_fw_errs should be defined in hex
+	All decimal #define errors in header changed to hex
+	
+	Revision 1.50  2003/11/07 21:01:18  niels
+	Revision 1.49  2003/10/21 01:16:41  collin
+	Revision 1.48  2003/10/17 00:25:24  collin
+	Revision 1.47  2003/10/15 02:19:45  collin
+	Revision 1.46  2003/07/22 10:49:47  niels
+	Revision 1.45  2003/07/21 06:52:59  niels
+	merge isoch to TOT
+	
+	Revision 1.44.4.5  2003/07/21 06:44:44  niels
+	Revision 1.44.4.4  2003/07/18 00:17:42  niels
+	Revision 1.44.4.3  2003/07/14 22:08:53  niels
+	Revision 1.44.4.2  2003/07/09 21:24:01  niels
+	Revision 1.44.4.1  2003/07/01 20:54:07  niels
+	isoch merge
+	
+	Revision 1.44  2003/03/17 01:05:22  collin
+	Revision 1.43  2003/03/07 01:26:06  collin
+	Revision 1.42  2003/02/19 22:33:17  niels
+	add skip cycle DCL
+	
+	Revision 1.41  2003/02/18 00:14:01  collin
+	Revision 1.40  2003/02/17 21:47:52  collin
 	Revision 1.39  2002/12/05 19:08:37  niels
 	remove trailing commas from enums in IOFireWireFamilyCommon.h
 	
@@ -124,53 +156,70 @@ in the kernel and in user space
 #define kIOFireWireBusReset								(kIOFireWireResponseBase+kFWResponseBusResetError)
 
 // e0008001 -- Can't find requested entry in ROM
-#define kIOConfigNoEntry								iokit_fw_err(1)
+#define kIOConfigNoEntry								iokit_fw_err(0x1)
 
 // e0008002 -- In pending queue waiting to execute
-#define kIOFireWirePending								iokit_fw_err(2)
+#define kIOFireWirePending								iokit_fw_err(0x2)
 
 // e0008003 -- Last DCL callback of program (internal use)
-#define kIOFireWireLastDCLToken							iokit_fw_err(3)
+#define kIOFireWireLastDCLToken							iokit_fw_err(0x3)
 
 // e0008004
-#define kIOFireWireConfigROMInvalid						iokit_fw_err(4)
+#define kIOFireWireConfigROMInvalid						iokit_fw_err(0x4)
 
 // e0008005
-#define kIOFireWireAlreadyRegistered					iokit_fw_err(5)
+#define kIOFireWireAlreadyRegistered					iokit_fw_err(0x5)
 
 // e0008006
-#define kIOFireWireMultipleTalkers						iokit_fw_err(6)
+#define kIOFireWireMultipleTalkers						iokit_fw_err(0x6)
 
 // e0008007
-#define kIOFireWireChannelActive						iokit_fw_err(7)
+#define kIOFireWireChannelActive						iokit_fw_err(0x7)
 
 // e0008008
-#define kIOFireWireNoListenerOrTalker					iokit_fw_err(8)
+#define kIOFireWireNoListenerOrTalker					iokit_fw_err(0x8)
 
 // e0008009
-#define kIOFireWireNoChannels							iokit_fw_err(9)
+#define kIOFireWireNoChannels							iokit_fw_err(0x9)
 
 // e000800A
-#define kIOFireWireChannelNotAvailable					iokit_fw_err(10)
+#define kIOFireWireChannelNotAvailable					iokit_fw_err(0xA)
 
 // e000800B
-#define kIOFireWireSeparateBus							iokit_fw_err(11)
+#define kIOFireWireSeparateBus							iokit_fw_err(0xB)
 
 // e000800C
-#define kIOFireWireBadSelfIDs							iokit_fw_err(12)
+#define kIOFireWireBadSelfIDs							iokit_fw_err(0xC)
 
 // e000800D
-#define kIOFireWireLowCableVoltage						iokit_fw_err(13)
+#define kIOFireWireLowCableVoltage						iokit_fw_err(0xD)
 
 // e000800E
-#define kIOFireWireInsufficientPower					iokit_fw_err(14)
+#define kIOFireWireInsufficientPower					iokit_fw_err(0xE)
 
 // e000800f
-#define kIOFireWireOutOfTLabels							iokit_fw_err(15)
+#define kIOFireWireOutOfTLabels							iokit_fw_err(0xF)
+
+// NOTE: errors 16Ñ31 used for address space response codes.. (see above)
+
+// e0008101
+#define kIOFireWireBogusDCLProgram						iokit_fw_err(0x101)
+
+// e0008102
+#define kIOFireWireTalkingAndListening					iokit_fw_err(0x102)
+
+// e0008103
+#define kIOFireWireHardwareSlept						iokit_fw_err(0x103)
+
+// e0008104		// let's resume here...
+
+// e0008104 -- In the middle of completing
+#define kIOFireWireCompleting								iokit_fw_err(0x104)
 
 // e00087d0
-#define kIOFWMessageServiceIsRequestingClose 			(UInt32)iokit_fw_err(2000)
-
+#define kIOFWMessageServiceIsRequestingClose 			(UInt32)iokit_fw_err(0x7D0)
+#define kIOFWMessagePowerStateChanged 					(UInt32)iokit_fw_err(0x7D1)
+#define kIOFWMessageTopologyChanged						(UInt32)iokit_fw_err(0x7D2)
 // =================================================================
 // Pseudo address space response codes
 // =================================================================
@@ -556,6 +605,29 @@ enum
 #define CHAN_BIT(x) 		(((UInt64)1) << (63 - (x))
 #define CHAN_MASK(x) 		(~CHAN_BIT(X))
 
+typedef enum
+{
+	kFWNeverMultiMode = 0,
+	kFWAllowMultiMode,
+	kFWSuggestMultiMode,
+	kFWAlwaysMultiMode,
+	
+	kFWDefaultIsochResourceFlags = kFWNeverMultiMode
+} IOFWIsochResourceFlags ;
+
+enum
+{
+	kFWIsochChannelDefaultFlags = 0,
+	kFWIsochChannelDoNotResumeOnWake = BIT(1)
+} ;
+
+typedef enum
+{
+	kFWIsochPortDefaultOptions = 0,
+	kFWIsochPortUseSeparateKernelThread		= BIT(1),
+	kFWIsochEnableRobustness			= BIT(2)
+} IOFWIsochPortOptions ;
+
 // =================================================================
 // DCL opcode defs.
 // =================================================================
@@ -569,12 +641,15 @@ enum
 	kFWDCLSyBitsEvent					= 2
 };
 
-enum
+typedef enum
 {
-	kFWDCLInvalidNotification			= 0,
-	kFWDCLUpdateNotification			= 1,
-	kFWDCLModifyNotification			= 2
-};
+	kFWDCLInvalidNotification				= 0
+	, kFWDCLUpdateNotification				= 1
+	, kFWDCLModifyNotification				= 2
+	, kFWNuDCLModifyNotification			= 3
+	, kFWNuDCLModifyJumpNotification		= 4
+	, kFWNuDCLUpdateNotification			= 5
+} IOFWDCLNotificationType ;
 
 enum
 {
@@ -601,7 +676,11 @@ enum
 	kDCLUpdateDCLListOp					= 12,
 	kDCLTimeStampOp						= 13,
 	kDCLPtrTimeStampOp					= 14,
-	kDCLSkipCycleOp						= 15
+	kDCLSkipCycleOp						= 15,
+
+	kDCLNuDCLLeaderOp					= 20	// compilerData field contains NuDCLRef to start of NuDCL
+												// program.
+												// Should not need to use this directly.
 };
 
 #ifdef FW_OLD_DCL_DEFS
@@ -622,33 +701,19 @@ enum
 #pragma mark -
 #pragma mark DCL
 
-#ifdef FW_OLD_DCL_DEFS
-
 typedef struct DCLCommandStruct
 {
-	struct DCLCommandStruct*	pNextDCLCommand;		// Next DCL command.
+	struct DCLCommandStruct *	pNextDCLCommand;		// Next DCL command.
 	UInt32						compilerData;			// Data for use by DCL compiler.
 	UInt32						opcode;					// DCL opcode.
 	UInt32						operands[1];			// DCL operands (size varies)
-} DCLCommand ;
+} DCLCommand;
 
-#else
-
-typedef struct DCLCommand
-{
-	DCLCommand*				pNextDCLCommand;		// Next DCL command.
-	UInt32					compilerData;			// Data for use by DCL compiler.
-	UInt32					opcode;					// DCL opcode.
-	UInt32					operands[1];			// DCL operands (size varies)
-} DCLCommand ;
-
-#endif
-
-typedef void (DCLCallCommandProc)(DCLCommand* command);
+typedef void (DCLCallCommandProc)(DCLCommand * command);
 
 typedef struct DCLTransferPacketStruct
 {
-	DCLCommand*				pNextDCLCommand;		// Next DCL command.
+	DCLCommand *			pNextDCLCommand;		// Next DCL command.
 	UInt32					compilerData;			// Data for use by DCL compiler.
 	UInt32					opcode;					// DCL opcode.
 	void *					buffer;					// Packet buffer.
@@ -657,7 +722,7 @@ typedef struct DCLTransferPacketStruct
 
 typedef struct DCLTransferBufferStruct
 {
-	DCLCommand*				pNextDCLCommand;		// Next DCL command.
+	DCLCommand *			pNextDCLCommand;		// Next DCL command.
 	UInt32					compilerData;			// Data for use by DCL compiler.
 	UInt32					opcode;					// DCL opcode.
 	void *					buffer;					// Buffer.
@@ -669,61 +734,69 @@ typedef struct DCLTransferBufferStruct
 
 typedef struct DCLCallProcStruct
 {
-	DCLCommand*				pNextDCLCommand;	// Next DCL command.
+	DCLCommand *			pNextDCLCommand;	// Next DCL command.
 	UInt32					compilerData;		// Data for use by DCL compiler.
 	UInt32					opcode;				// DCL opcode.
-	DCLCallCommandProc*		proc;				// Procedure to call.
+	DCLCallCommandProc *	proc;				// Procedure to call.
 	UInt32					procData;			// Data for use by called procedure.
-} DCLCallProc ;
+} DCLCallProc;
 
 typedef struct DCLLabelStruct
 {
-	DCLCommand*				pNextDCLCommand;	// Next DCL command.
+	DCLCommand *			pNextDCLCommand;	// Next DCL command.
 	UInt32					compilerData;		// Data for use by DCL compiler.
 	UInt32					opcode;				// DCL opcode.
-} DCLLabel ;
+} DCLLabel;
 
 typedef struct DCLJumpStruct
 {
-	DCLCommand*				pNextDCLCommand;	// Next DCL command.
+	DCLCommand *			pNextDCLCommand;	// Next DCL command.
 	UInt32					compilerData;		// Data for use by DCL compiler.
 	UInt32					opcode;				// DCL opcode.
-	DCLLabel*				pJumpDCLLabel;		// DCL label to jump to.
-} DCLJump ;
+	DCLLabel *				pJumpDCLLabel;		// DCL label to jump to.
+} DCLJump;
 
 typedef struct DCLSetTagSyncBitsStruct
 {
-	DCLCommand*				pNextDCLCommand;	// Next DCL command.
+	DCLCommand *			pNextDCLCommand;	// Next DCL command.
 	UInt32					compilerData;		// Data for use by DCL compiler.
 	UInt32					opcode;				// DCL opcode.
 	UInt16					tagBits;			// Tag bits for following packets.
 	UInt16					syncBits;			// Sync bits for following packets.
-} DCLSetTagSyncBits ;
+} DCLSetTagSyncBits;
 
 typedef struct DCLUpdateDCLListStruct
 {
-	DCLCommand*				pNextDCLCommand;	// Next DCL command.
+	DCLCommand *			pNextDCLCommand;	// Next DCL command.
 	UInt32					compilerData;		// Data for use by DCL compiler.
 	UInt32					opcode;				// DCL opcode.
-	DCLCommand**			dclCommandList;		// List of DCL commands to update.
+	DCLCommand **			dclCommandList;		// List of DCL commands to update.
 	UInt32					numDCLCommands;		// Number of DCL commands in list.
-} DCLUpdateDCLList ;
+} DCLUpdateDCLList;
 
 typedef struct DCLTimeStampStruct
 {
-	DCLCommand*				pNextDCLCommand;	// Next DCL command.
+	DCLCommand *			pNextDCLCommand;	// Next DCL command.
 	UInt32					compilerData;		// Data for use by DCL compiler.
 	UInt32					opcode;				// DCL opcode.
 	UInt32					timeStamp;			// Time stamp.
-} DCLTimeStamp ;
+} DCLTimeStamp;
 
 typedef struct DCLPtrTimeStampStruct
 {
-	DCLCommand*				pNextDCLCommand;	// Next DCL command.
+	DCLCommand *			pNextDCLCommand;	// Next DCL command.
 	UInt32					compilerData;		// Data for use by DCL compiler.
 	UInt32					opcode;				// DCL opcode.
-	UInt32*					timeStampPtr;		// Where to store the time stamp.
+	UInt32 *				timeStampPtr;		// Where to store the time stamp.
 } DCLPtrTimeStamp ;
+
+typedef struct 
+{
+	DCLCommand *			pNextDCLCommand ;	// unused - always NULL
+	UInt32					compilerData;		// Data for use by DCL compiler.
+	UInt32					opcode ;			// must be kDCLNuDCLLeaderOp
+	void*				 	program ;			// NuDCL program here...
+} DCLNuDCLLeader ;
 
 #ifdef FW_OLD_DCL_DEFS
 
@@ -742,6 +815,26 @@ typedef DCLPtrTimeStamp*		DCLPtrTimeStampPtr ;
 typedef DCLCallCommandProc* 	DCLCallCommandProcPtr ;
 
 #endif
+
+// =================================================================
+// NuDCL
+// =================================================================
+#pragma mark -
+#pragma mark NUDCL
+
+typedef struct __NuDCL *	NuDCLRef ;
+typedef NuDCLRef			NuDCLSendPacketRef ;
+typedef NuDCLRef			NuDCLSkipCycleRef ;
+typedef NuDCLRef			NuDCLReceivePacketRef ;
+
+typedef void (*NuDCLCallback)( void* refcon, NuDCLRef dcl );
+
+typedef enum
+{
+	kNuDCLDynamic = BIT( 1 ),
+	kNuDCLUpdateBeforeCallback = BIT( 2 )
+
+} NuDCLFlags ;
 
 // =================================================================
 // Miscellaneous
@@ -781,7 +874,9 @@ enum
 {
     kIOFWDisablePhysicalAccess 		= (1 << 0),
 	kIOFWDisableAllPhysicalAccess 	= (1 << 1),
-	kIOFWEnableRetryOnAckD			= (1 << 2)
+	kIOFWEnableRetryOnAckD			= (1 << 2),
+	kIOFWLimitAsyncPacketSize		= (1 << 3),
+	kIOFWDisablePhyOnSleep			= (1 << 4)
 };
 
 //
@@ -790,7 +885,7 @@ enum
 
 enum IOFWWriteFlags
 {
-	kIOFWWriteFlagsNone				= 0x00000000,
+	kIOFWWriteFlagsNone				= 0x0000000,
 	kIOFWWriteFlagsDeferredNotify 	= 0x00000001
 };
 

@@ -27,6 +27,7 @@
 
 // private
 #import "FWDebugging.h"
+#include "IOConfigDirectoryIterator.h"
 
 // system
 #import <libkern/c++/OSIterator.h>
@@ -34,106 +35,6 @@
 
 static int findIndex(const UInt32* base, int size, int key,
                      UInt32 type = kInvalidConfigROMEntryType);
-
-
-class IOConfigDirectoryIterator : public OSIterator
-{
-    OSDeclareDefaultStructors(IOConfigDirectoryIterator)
-
-protected:
-    OSSet *	fDirectorySet;
-    OSIterator * fDirectoryIterator;
-	
-    virtual void free();
-
-public:
-    virtual IOReturn init(IOConfigDirectory *owner, UInt32 testVal, UInt32 testMask);
-    
-    virtual void reset();
-
-    virtual bool isValid();
-
-    virtual OSObject *getNextObject();
-};
-
-OSDefineMetaClassAndStructors(IOConfigDirectoryIterator, OSIterator)
-
-IOReturn IOConfigDirectoryIterator::init(IOConfigDirectory *owner,
-                                  		 UInt32 testVal, UInt32 testMask)
-{
-	IOReturn status = kIOReturnSuccess;
-	
-    if( !OSIterator::init() )
-        status = kIOReturnError;
-	
-	if( status == kIOReturnSuccess )
-	{
-		fDirectorySet = OSSet::withCapacity(2);
-		if( fDirectorySet == NULL )
-			status = kIOReturnNoMemory;
-	}
-	
-	int position = 0;
-	while( status == kIOReturnSuccess && position < owner->getNumEntries() ) 
-	{
-		UInt32 value;
-		IOConfigDirectory * next;
-		
-		status = owner->getIndexEntry( position, value );
-		if( status == kIOReturnSuccess && (value & testMask) == testVal ) 
-		{
-			status = owner->getIndexValue( position, next );
-			if( status == kIOReturnSuccess )
-			{
-				fDirectorySet->setObject( next );
-				next->release();
-			}
-		}
-		
-		position++;
-	}
-    
-	if( status == kIOReturnSuccess )
-	{
-		fDirectoryIterator = OSCollectionIterator::withCollection( fDirectorySet );
-		if( fDirectoryIterator == NULL )
-			status = kIOReturnNoMemory;
-	}
-	
-    return status;
-}
-
-void IOConfigDirectoryIterator::free()
-{
-	if( fDirectoryIterator != NULL )
-	{
-		fDirectoryIterator->release();
-		fDirectoryIterator = NULL;
-	}
-	
-	if( fDirectorySet != NULL )
-	{
-		fDirectorySet->release();
-		fDirectorySet = NULL;
-	}
-		
-    OSIterator::free();
-}
-
-void IOConfigDirectoryIterator::reset()
-{
-    fDirectoryIterator->reset();
-}
-
-bool IOConfigDirectoryIterator::isValid()
-{
-    return true;
-}
-
-OSObject *IOConfigDirectoryIterator::getNextObject()
-{
-	return fDirectoryIterator->getNextObject();
-}
 
 int findIndex(const UInt32* base, int size, int key, UInt32 type)
 {
@@ -254,7 +155,7 @@ IOReturn IOConfigDirectory::createIterator(UInt32 testVal, UInt32 testMask, OSIt
 IOReturn IOConfigDirectory::getKeyType(int key, IOConfigKeyType &type)
 {
 	IOReturn status = kIOReturnSuccess;
-    int index;
+    int index = 0;
     
 	status = checkROMState();
 	
@@ -283,7 +184,7 @@ IOReturn IOConfigDirectory::getKeyType(int key, IOConfigKeyType &type)
 IOReturn IOConfigDirectory::getKeyValue(int key, UInt32 &value, OSString** text)
 {
 	IOReturn status = kIOReturnSuccess;
-    int index;
+    int index = 0;
  
 	status = checkROMState();
 	
@@ -321,7 +222,7 @@ IOReturn IOConfigDirectory::getKeyValue(int key, UInt32 &value, OSString** text)
 IOReturn IOConfigDirectory::getKeyValue(int key, OSData *&value, OSString** text)
 {
 	IOReturn status = kIOReturnSuccess;
-    int index;
+    int index = 0;
 
 	status = checkROMState();
 
@@ -362,7 +263,7 @@ IOReturn IOConfigDirectory::getKeyValue(int key, IOConfigDirectory *&value,
                                                         OSString** text)
 {
 	IOReturn status = kIOReturnSuccess;
-    int index;
+    int index = 0;
     
 	status = checkROMState();
 	
@@ -402,7 +303,7 @@ IOReturn IOConfigDirectory::getKeyValue(int key, IOConfigDirectory *&value,
 IOReturn IOConfigDirectory::getKeyOffset(int key, FWAddress &value, OSString** text)
 {
 	IOReturn status = kIOReturnSuccess;
-    int index;
+    int index = 0;
     
 	status = checkROMState();
 	
@@ -482,11 +383,11 @@ IOReturn IOConfigDirectory::getIndexType(int index, IOConfigKeyType &type)
 	}
 	
 	if( status == kIOReturnSuccess )
-	{
+	{	
 		const UInt32 * data = lockData();
 		entry = data[fStart + 1 + index];
 		unlockData();
-	
+
 		type = (IOConfigKeyType)((entry & kConfigEntryKeyType) >> kConfigEntryKeyTypePhase);
     }
 	
@@ -623,10 +524,10 @@ IOReturn IOConfigDirectory::getIndexValue(int index, OSData *&value)
 IOReturn IOConfigDirectory::getIndexValue(int index, OSString *&value)
 {
 	IOReturn status = kIOReturnSuccess;
-    UInt32 entry;
+    UInt32 entry = 0;
     const UInt32 *data;
     UInt32 offset;
-    int len;
+    int len = 0;
     
 	status = checkROMState();
 	
@@ -718,7 +619,7 @@ IOReturn IOConfigDirectory::getIndexValue(int index, OSString *&value)
 IOReturn IOConfigDirectory::getIndexValue(int index, IOConfigDirectory *&value)
 {
 	IOReturn status = kIOReturnSuccess;
-    UInt32 entry;
+    UInt32 entry = 0;
     UInt32 offset;
 
 	status = checkROMState();
@@ -761,7 +662,7 @@ IOReturn IOConfigDirectory::getIndexValue(int index, IOConfigDirectory *&value)
 IOReturn IOConfigDirectory::getIndexOffset(int index, FWAddress &value)
 {
 	IOReturn status = kIOReturnSuccess;
-    UInt32 entry;
+    UInt32 entry = 0;
     UInt32 offset;
 
 	status = checkROMState();
@@ -807,7 +708,7 @@ IOReturn IOConfigDirectory::getIndexOffset(int index, FWAddress &value)
 IOReturn IOConfigDirectory::getIndexOffset(int index, UInt32 &value)
 {
 	IOReturn status = kIOReturnSuccess;
-    UInt32 entry;
+    UInt32 entry = 0;
 
 	status = checkROMState();
 	
@@ -878,111 +779,3 @@ IOReturn IOConfigDirectory::getSubdirectories(OSIterator *&iterator)
                           kConfigEntryKeyType, iterator);
 }
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-
-OSDefineMetaClassAndStructors(IORemoteConfigDirectory, IOConfigDirectory)
-OSMetaClassDefineReservedUnused(IORemoteConfigDirectory, 0);
-OSMetaClassDefineReservedUnused(IORemoteConfigDirectory, 1);
-OSMetaClassDefineReservedUnused(IORemoteConfigDirectory, 2);
-
-
-bool
-IORemoteConfigDirectory::initWithOwnerOffset( IOFireWireROMCache *rom,
-                         int start, int type)
-{
-
-    // Do this first so that init can load ROM
-    fROM = rom;
-    fROM->retain();
-
-    if( !IOConfigDirectory::initWithOffset(start, type) ) 
-	{
-		fROM->release();
-		fROM = NULL;
-		
-        return false;       
-    }
-
-    return true;
-}
-
-void
-IORemoteConfigDirectory::free()
-{
-    if(fROM)
-        fROM->release();
-    IOConfigDirectory::free();
-}
-
-IOConfigDirectory *
-IORemoteConfigDirectory::withOwnerOffset( IOFireWireROMCache *rom,
-                                           int start, int type)
-{
-    IORemoteConfigDirectory *dir;
-
-    dir = new IORemoteConfigDirectory;
-    if( !dir )
-        return NULL;
-
-    if( !dir->initWithOwnerOffset(rom, start, type) ) 
-	{
-        dir->release();
-        dir = NULL;
-    }
-    return dir;
-}
-
-const UInt32 *IORemoteConfigDirectory::getBase()
-{
-    return ((const UInt32 *)fROM->getBytesNoCopy())+fStart+1;
-}
-
-IOReturn IORemoteConfigDirectory::update(UInt32 offset, const UInt32 *&romBase)
-{
-	// unsupported
-	
-	return kIOReturnError;
-}
-
-IOConfigDirectory *
-IORemoteConfigDirectory::getSubDir(int start, int type)
-{
-    return withOwnerOffset(fROM, start, type);
-}
-
-// lockData
-//
-//
-
-const UInt32 * IORemoteConfigDirectory::lockData( void )
-{
-	fROM->lock();
-	return (UInt32 *)fROM->getBytesNoCopy();
-}
-
-// unlockData
-//
-//
-
-void IORemoteConfigDirectory::unlockData( void )
-{
-	fROM->unlock();
-}
-
-// updateROMCache
-//
-//
-
-IOReturn IORemoteConfigDirectory::updateROMCache( UInt32 offset, UInt32 length )
-{
-	return fROM->updateROMCache( offset, length );
-}
-
-// checkROMState
-//
-//
-
-IOReturn IORemoteConfigDirectory::checkROMState( void )
-{
-	return fROM->checkROMState();
-}

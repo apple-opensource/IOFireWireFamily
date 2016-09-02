@@ -49,20 +49,20 @@ private:
 		Reserved for future use.  (Internal use only)  */
 	ExpansionData *reserved;
 
-    static UInt32 						fHasUCIniter; // zzz why not boolean?
-    static IOFireWireUserClientIniter*	fUCIniter;
-    static OSDictionary*				fProviderMergeProperties;
-	static OSDictionary*				fPropTable ;
-	static IOService*					fProvider ;
+	IOService*						fProvider;
+
+	static IORecursiveLock *		sIniterLock;
 
 public:
-	virtual bool					start(IOService*	provider) ;
-	virtual bool					init(OSDictionary*	propTable) ;
-	virtual void					stop(IOService*		provider) ;
+	virtual bool					start(IOService* provider);
+	virtual bool					init(OSDictionary* propTable);
+	virtual void					free();
+	virtual void					stop(IOService* provider);
 	
 protected:
-	virtual void					mergeProperties(OSObject* dest, OSObject* src) ;
-	virtual OSDictionary*			copyDictionaryProperty(OSDictionary*	srcDictionary) ;
+	void				mergeProperties( IORegistryEntry * dest, OSDictionary * src );
+	void				mergeDictionaries( OSDictionary * dest, OSDictionary * src );
+	OSDictionary*		dictionaryDeepCopy(OSDictionary* srcDictionary);
 
 private:
     OSMetaClassDeclareReservedUnused(IOFireWireUserClientIniter, 0);

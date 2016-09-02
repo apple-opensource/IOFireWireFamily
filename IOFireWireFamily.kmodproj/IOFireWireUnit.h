@@ -28,14 +28,61 @@
 #ifndef _IOKIT_IOFIREWIREUNIT_H
 #define _IOKIT_IOFIREWIREUNIT_H
 
+// public
 #include <IOKit/firewire/IOFireWireNub.h>
+
 class IOFireWireDevice;
+class IOFireWireUnit;
+
+#pragma mark -
+
+/*! 
+	@class IOFireWireUnitAux
+*/
+
+class IOFireWireUnitAux : public IOFireWireNubAux
+{
+    OSDeclareDefaultStructors(IOFireWireUnitAux)
+
+	friend class IOFireWireUnit;
+	
+protected:
+	
+	/*! 
+		@struct ExpansionData
+		@discussion This structure will be used to expand the capablilties of the class in the future.
+    */  
+	  
+    struct ExpansionData { };
+
+	/*! 
+		@var reserved
+		Reserved for future use.  (Internal use only)  
+	*/
+    
+	ExpansionData * reserved;
+
+    virtual bool init( IOFireWireUnit * primary );
+	virtual	void free();
+	
+private:
+    OSMetaClassDeclareReservedUnused(IOFireWireUnitAux, 0);
+    OSMetaClassDeclareReservedUnused(IOFireWireUnitAux, 1);
+    OSMetaClassDeclareReservedUnused(IOFireWireUnitAux, 2);
+    OSMetaClassDeclareReservedUnused(IOFireWireUnitAux, 3);
+	
+};
+
+#pragma mark -
 
 /*! @class IOFireWireUnit
 */
 class IOFireWireUnit : public IOFireWireNub
 {
     OSDeclareDefaultStructors(IOFireWireUnit)
+
+	friend class IOFireWireUnitAux;
+	friend class IOFireWireDevice;
 
 protected:
     IOFireWireDevice *fDevice;	// The device unit is part of
@@ -58,6 +105,7 @@ public:
      * Standard nub initialization
      */
     virtual bool attach(IOService * provider );
+	virtual void free();
 
     /*
      * Matching language support
@@ -84,12 +132,25 @@ public:
 	virtual void clearNodeFlags( UInt32 flags );
     virtual UInt32 getNodeFlags( void );
 
+	virtual IOReturn setConfigDirectory( IOConfigDirectory *directory );
+
     /*
      * Create local FireWire address spaces for the device to access
      */
     virtual IOFWPhysicalAddressSpace *createPhysicalAddressSpace(IOMemoryDescriptor *mem);
     virtual IOFWPseudoAddressSpace *createPseudoAddressSpace(FWAddress *addr, UInt32 len,
                     FWReadCallback reader, FWWriteCallback writer, void *refcon);
+
+protected:
+	
+	virtual IOFireWireNubAux * createAuxiliary( void );
+
+public:
+	void setMaxSpeed( IOFWSpeed speed );
+
+protected:
+	void terminateUnit( void );
+	static void terminateUnitThreadFunc( void * refcon );
 	    
 private:
     OSMetaClassDeclareReservedUnused(IOFireWireUnit, 0);

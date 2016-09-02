@@ -35,19 +35,16 @@
 #import <IOKit/IOService.h>
 #import <libkern/OSAtomic.h>
 
+#undef super
+#define super IOService
 
-OSDefineMetaClassAndStructors(IOFireWireUserClientIniter, IOService);
+IORecursiveLock * 	IOFireWireUserClientIniter::sIniterLock = NULL;
+
+OSDefineMetaClassAndStructors(IOFireWireUserClientIniter, super);
 OSMetaClassDefineReservedUnused(IOFireWireUserClientIniter, 0);
 OSMetaClassDefineReservedUnused(IOFireWireUserClientIniter, 1);
 OSMetaClassDefineReservedUnused(IOFireWireUserClientIniter, 2);
 OSMetaClassDefineReservedUnused(IOFireWireUserClientIniter, 3);
-
-UInt32						IOFireWireUserClientIniter::fHasUCIniter = false ;
-IOFireWireUserClientIniter*	IOFireWireUserClientIniter::fUCIniter = NULL ;
-OSDictionary*				IOFireWireUserClientIniter::fProviderMergeProperties = NULL ;
-OSDictionary*				IOFireWireUserClientIniter::fPropTable = NULL ;
-IOService*					IOFireWireUserClientIniter::fProvider = NULL ;
-
 
 // init
 //
@@ -56,10 +53,29 @@ IOService*					IOFireWireUserClientIniter::fProvider = NULL ;
 bool
 IOFireWireUserClientIniter::init(OSDictionary * propTable)
 {
-	fPropTable = propTable ;
 	fProvider = NULL ;
+
+	if( sIniterLock == NULL )
+	{
+		IORecursiveLock * lock = IORecursiveLockAlloc();
+		//IOLog( "IOFireWireUserClientIniter<0x%08lx>::init - IORecursiveLockAlloc = 0x%08lx\n", this, lock );
+
+		bool result = false;
+		while( sIniterLock == NULL && result == false )
+		{
+			result = OSCompareAndSwap( NULL, (UInt32)lock, (UInt32*)&sIniterLock );
+		}
+
+		if( result == false )
+		{
+			//IOLog( "IOFireWireUserClientIniter<0x%08lx>::init - IORecursiveLockFree = 0x%08lx\n", this, lock );
+			IORecursiveLockFree( lock );
+		}
+	}
 	
-	return IOService::init(propTable) ;
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::init - sIniterLock = 0x%08lx\n", this, sIniterLock );
+
+	return super::init(propTable) ;
 }
 
 // start
@@ -70,16 +86,27 @@ bool
 IOFireWireUserClientIniter::start(
 	IOService*	provider)
 {
-	fProvider = provider ;
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::start - provider = 0x%08lx\n", this, provider );
 
-	OSObject*	dictObj = getProperty("IOProviderMergeProperties");
-	
-	fProviderMergeProperties = OSDynamicCast(OSDictionary, dictObj);
-	
-	if ( !fProviderMergeProperties )
+	if( provider == NULL )
 	{
-		fHasUCIniter = false;
-		IOLog("%s %u: couldn't get fProviderMergeProperties\n", __FILE__, __LINE__ ) ;
+		return false;
+	}
+	
+	fProvider = provider ;
+	fProvider->retain();
+
+	OSObject*	dictObj = getProperty("IOProviderMergeProperties");	
+
+	OSDictionary * merge_properties = OSDynamicCast(OSDictionary, dictObj);
+	if( merge_properties != NULL )
+	{
+		merge_properties = dictionaryDeepCopy( merge_properties );
+	}
+	
+	if ( !merge_properties )
+	{
+		IOLog("%s %u: couldn't get merge_properties\n", __FILE__, __LINE__ ) ;
 		return false;
 	}
 
@@ -87,7 +114,7 @@ IOFireWireUserClientIniter::start(
 	// make sure the user client class object is an OSSymbol
 	//
 	
-	OSObject * userClientClassObject = fProviderMergeProperties->getObject( gIOUserClientClassKey );
+	OSObject * userClientClassObject = merge_properties->getObject( gIOUserClientClassKey );
 	if( OSDynamicCast(OSString, userClientClassObject) != NULL )
 	{
 		// if the the user client class object is an OSString, turn it into an OSSymbol
@@ -95,7 +122,7 @@ IOFireWireUserClientIniter::start(
 		const OSSymbol * userClientClassSymbol = OSSymbol::withString((const OSString *) userClientClassObject);
 		if( userClientClassSymbol != NULL )
 		{
-			fProviderMergeProperties->setObject(gIOUserClientClassKey, (OSObject *) userClientClassSymbol);
+			merge_properties->setObject(gIOUserClientClassKey, (OSObject *) userClientClassSymbol);
 			userClientClassSymbol->release();
 		}
 		
@@ -104,18 +131,27 @@ IOFireWireUserClientIniter::start(
 	{
 		// if its not an OSString or an OSymbol remove it from the merge properties
 		
-		fProviderMergeProperties->removeObject(gIOUserClientClassKey);
+		merge_properties->removeObject(gIOUserClientClassKey);
 	}
 	
-    OSDictionary*	providerProps = fProvider->getPropertyTable() ;
-	if (providerProps)
-	{
-		mergeProperties(providerProps, fProviderMergeProperties) ;
-//		fProviderMergeProperties->flushCollection() ;
-	}
+	// serialize all firwire user client initers
+	
+	IORecursiveLockLock( sIniterLock );
+	
+	mergeProperties( fProvider, merge_properties );
 
+	IORecursiveLockUnlock( sIniterLock );
+
+	merge_properties->release();
+
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::start - return\n", this );
+	
     return true ;
 }
+
+// stop
+//
+//
 
 void
 IOFireWireUserClientIniter::stop(IOService* provider)
@@ -123,17 +159,93 @@ IOFireWireUserClientIniter::stop(IOService* provider)
 	IOService::stop(provider) ;
 }
 
+// free
+//
+//
+
+void IOFireWireUserClientIniter::free()
+{
+	if( fProvider != NULL )
+	{
+		fProvider->release();
+		fProvider = NULL;
+	}
+	
+	IOService::free();
+}
+
 // mergeProperties
 //
-// recurively merge the properties of two dictionaries
+// recursively merge a dictionaries into a registry entry
 
 void
-IOFireWireUserClientIniter::mergeProperties(OSObject* inDest, OSObject* inSrc)
+IOFireWireUserClientIniter::mergeProperties( IORegistryEntry * dest, OSDictionary * src )
 {
-	OSDictionary*	dest = OSDynamicCast(OSDictionary, inDest);
-	OSDictionary*	src = OSDynamicCast(OSDictionary, inSrc);
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::mergeProperties - dest = 0x%08lx, src = 0x%08lx\n", this, dest, src );
 
-	if (!src || !dest)
+	if( !dest || !src )
+		return;
+	
+	OSCollectionIterator*	srcIterator = OSCollectionIterator::withCollection( src );
+	
+	OSSymbol*	keyObject	= NULL;
+	OSObject*	destObject	= NULL;
+	OSObject*	srcObject	= NULL;
+	
+	while( NULL != (keyObject = OSDynamicCast(OSSymbol, srcIterator->getNextObject())) )
+	{
+		srcObject 	= src->getObject(keyObject);
+		destObject	= dest->getProperty(keyObject);
+		
+		OSDictionary * destDictionary = OSDynamicCast( OSDictionary, destObject );
+		OSDictionary * srcDictionary = OSDynamicCast( OSDictionary, srcObject );
+		
+		if( destDictionary && srcDictionary )
+		{
+			// if there's already already a property defined in the destination
+			// and the source and destination are dictionaries, we need to do 
+			// a recursive merge
+		
+			// shallow copy the destination directory
+			destDictionary = OSDictionary::withDictionary( destDictionary );
+			
+			// recurse
+			mergeDictionaries( destDictionary, srcDictionary );
+			
+			// set the property
+			dest->setProperty( keyObject, destDictionary );
+			destDictionary->release();			
+		}
+		else
+		{
+			// if the property is not already in destination dictionary 
+			// or both source a destination are not dictionaries
+			// then we can set the property without merging
+			
+			// any dictionaries in the source should already 
+			// have been deep copied before we began merging
+			
+			dest->setProperty( keyObject, srcObject );
+		}
+	}
+	
+	// have to release this, or we'll leak.
+	srcIterator->release();
+	
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::mergeProperties - return\n", this );
+	
+}
+
+// mergeDictionaries
+//
+// recursively merge two dictionaries
+
+void
+IOFireWireUserClientIniter::mergeDictionaries( OSDictionary * dest, OSDictionary * src )
+{
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::mergeDictionaries - dest = 0x%08lx, src = 0x%08lx\n", this, dest, src );
+	
+	if( !src || !dest )
 		return;
 
 	OSCollectionIterator*	srcIterator = OSCollectionIterator::withCollection(src);
@@ -142,51 +254,59 @@ IOFireWireUserClientIniter::mergeProperties(OSObject* inDest, OSObject* inSrc)
 	OSObject*	destObject	= NULL;
 	OSObject*	srcObject	= NULL;
 	
-	while (NULL != (keyObject = OSDynamicCast(OSSymbol, srcIterator->getNextObject())))
+	while( NULL != (keyObject = OSDynamicCast(OSSymbol, srcIterator->getNextObject())) )
 	{
 		srcObject 	= src->getObject(keyObject);
 		destObject	= dest->getObject(keyObject);
 		
-		if (OSDynamicCast(OSDictionary, srcObject))
+		OSDictionary * destDictionary = OSDynamicCast( OSDictionary, destObject );
+		OSDictionary * srcDictionary = OSDynamicCast( OSDictionary, srcObject );
+		
+		if( destDictionary && srcDictionary )
 		{
-			srcObject = copyDictionaryProperty((OSDictionary*)srcObject);
+			// if there's already already a property defined in the destination
+			// and the source and destination are dictionaries, we need to do 
+			// a recursive merge
+		
+			// shallow copy the destination directory
+			destDictionary = OSDictionary::withDictionary( destDictionary);
 			
-			// if there's a already a dictionary with the same key as the 
-			// srcObject, we need to merge the new properties with that 
-			// dictionary, otherwise we can just add the srcObject to the
-			// dest dictionary
+			// recurse
+			mergeDictionaries( destDictionary, srcDictionary );
 			
-			if( destObject )
-				mergeProperties(destObject, srcObject);
-			else
-				dest->setObject(keyObject, srcObject);
-			
-			// copyDictionaryProperty creates a new dictionary, so we should release 
-			// it after we add it to our dictionary
-	
-			srcObject->release();
+			// set the property
+			dest->setObject( keyObject, destDictionary );
+			destDictionary->release();			
 		}
 		else
 		{
-			// if the property is not a dictionary, then we can simply add it to the
-			// destination dictionary
+			// if the property is not already in destination dictionary 
+			// or both source a destination are not dictionaries
+			// then we can set the property without merging
 			
-			dest->setObject(keyObject, srcObject);
+			// any dictionaries in the source should already 
+			// have been deep copied before we began merging
+			
+			dest->setObject( keyObject, srcObject );
 		}
 	}
 	
 	// have to release this, or we'll leak.
 	srcIterator->release();
+
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::mergeDictionaries - return\n", this );
 }
 
-// copyDictionaryProperty
+// dictionaryDeepCopy
 //
-// recursively copy am OSDictionary
+// recursively copy an OSDictionary
 
 OSDictionary*
-IOFireWireUserClientIniter::copyDictionaryProperty(
+IOFireWireUserClientIniter::dictionaryDeepCopy(
 	OSDictionary*	srcDictionary)
 {
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::dictionaryDeepCopy - srcDictionary = 0x%08lx\n", this, srcDictionary );
+
 	OSDictionary*			result			= NULL;
 	OSObject*				srcObject		= NULL;
 	OSCollectionIterator*	srcIterator		= NULL;
@@ -198,12 +318,12 @@ IOFireWireUserClientIniter::copyDictionaryProperty(
 		srcIterator = OSCollectionIterator::withCollection(srcDictionary);
 		if (srcIterator)
 		{
-			while ( keyObject = OSDynamicCast(OSSymbol, srcIterator->getNextObject()) )
+			while ( (keyObject = OSDynamicCast(OSSymbol, srcIterator->getNextObject())) )
 			{
 				srcObject	= srcDictionary->getObject(keyObject);
 				if (OSDynamicCast(OSDictionary, srcObject))
 				{
-					srcObject = copyDictionaryProperty((OSDictionary*)srcObject);
+					srcObject = dictionaryDeepCopy((OSDictionary*)srcObject);
 					
 					result->setObject(keyObject, srcObject);
 					
@@ -221,6 +341,8 @@ IOFireWireUserClientIniter::copyDictionaryProperty(
 			srcIterator->release();
 		}
 	}
+
+	//IOLog( "IOFireWireUserClientIniter<0x%08lx>::dictionaryDeepCopy - return\n", this );
 	
 	return result;
 }

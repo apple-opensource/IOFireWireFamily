@@ -25,6 +25,18 @@
  */
 /*
 	$Log: IOFireWireLocalNode.cpp,v $
+	Revision 1.8  2005/02/18 22:56:53  gecko1
+	3958781 Q45C EVT: FireWire ASP reporter says port speed is 800 Mb/sec
+	
+	Revision 1.7  2003/10/16 00:57:20  collin
+	*** empty log message ***
+	
+	Revision 1.6  2003/02/20 02:00:12  collin
+	*** empty log message ***
+	
+	Revision 1.5  2003/02/17 21:47:52  collin
+	*** empty log message ***
+	
 	Revision 1.4  2002/10/31 18:53:13  wgulland
 	Fix kernel panic when unloading family while reading ROMs
 	
@@ -44,7 +56,50 @@
 #import "IOFireWireMagicMatchingNub.h"
 #import "IOFireWireLocalNode.h"
 
+OSDefineMetaClassAndStructors(IOFireWireLocalNodeAux, IOFireWireNubAux);
+OSMetaClassDefineReservedUnused(IOFireWireLocalNodeAux, 0);
+OSMetaClassDefineReservedUnused(IOFireWireLocalNodeAux, 1);
+OSMetaClassDefineReservedUnused(IOFireWireLocalNodeAux, 2);
+OSMetaClassDefineReservedUnused(IOFireWireLocalNodeAux, 3);
+
+#pragma mark -
+
+// init
+//
+//
+
+bool IOFireWireLocalNodeAux::init( IOFireWireLocalNode * primary )
+{
+	bool success = true;		// assume success
+	
+	// init super
+	
+    if( !IOFireWireNubAux::init( primary ) )
+        success = false;
+	
+	if( success )
+	{
+	}
+	
+	return success;
+}
+
+// free
+//
+//
+
+void IOFireWireLocalNodeAux::free()
+{	    
+	IOFireWireNubAux::free();
+}
+
+#pragma mark -
+
 OSDefineMetaClassAndStructors(IOFireWireLocalNode, IOFireWireNub)
+
+// init
+//
+//
 
 bool IOFireWireLocalNode::init(OSDictionary * propTable)
 {
@@ -55,6 +110,30 @@ bool IOFireWireLocalNode::init(OSDictionary * propTable)
     fMaxWritePackLog = 11;
     return true;
 }
+
+// createAuxiliary
+//
+// virtual method for creating auxiliary object.  subclasses needing to subclass 
+// the auxiliary object can override this.
+
+IOFireWireNubAux * IOFireWireLocalNode::createAuxiliary( void )
+{
+	IOFireWireLocalNodeAux * auxiliary;
+    
+	auxiliary = new IOFireWireLocalNodeAux;
+
+    if( auxiliary != NULL && !auxiliary->init(this) ) 
+	{
+        auxiliary->release();
+        auxiliary = NULL;
+    }
+	
+    return auxiliary;
+}
+
+// attach
+//
+//
 
 bool IOFireWireLocalNode::attach(IOService * provider )
 {
@@ -67,9 +146,12 @@ bool IOFireWireLocalNode::attach(IOService * provider )
     return(true);
 }
 
+// setNodeProperties
+//
+//
 
 void IOFireWireLocalNode::setNodeProperties(UInt32 gen, UInt16 nodeID,
-                                        UInt32 *selfIDs, int numSelfIDs)
+                                        UInt32 *selfIDs, int numSelfIDs, IOFWSpeed maxSpeed )
 {
     OSObject *prop;
     
@@ -85,10 +167,36 @@ void IOFireWireLocalNode::setNodeProperties(UInt32 gen, UInt16 nodeID,
     setProperty(gFireWireSelfIDs, prop);
     prop->release();
 
-    prop = OSNumber::withNumber((selfIDs[0] & kFWSelfID0SP) >> kFWSelfID0SPPhase, 32);
+    prop = OSNumber::withNumber(maxSpeed, 32);
     setProperty(gFireWireSpeed, prop);
     prop->release();
 }
+
+// message
+//
+//
+
+IOReturn IOFireWireLocalNode::message( UInt32 mess, IOService * provider,
+                                    void * argument )
+{
+	if( kIOFWMessagePowerStateChanged == mess )
+	{
+		messageClients( mess );
+		return kIOReturnSuccess;
+	}
+
+	if( kIOFWMessageTopologyChanged == mess )
+	{
+		messageClients( mess );
+		return kIOReturnSuccess;
+	}
+	    
+    return IOService::message(mess, provider, argument );
+}
+
+// handleOpen
+//
+//
 
 bool IOFireWireLocalNode::handleOpen( 	IOService *	  forClient,
                             IOOptionBits	  options,
@@ -105,6 +213,10 @@ bool IOFireWireLocalNode::handleOpen( 	IOService *	  forClient,
     return ok;
 }
 
+// handleClose
+//
+//
+
 void IOFireWireLocalNode::handleClose(   IOService *	  forClient,
                             IOOptionBits	  options )
 {
@@ -116,10 +228,18 @@ void IOFireWireLocalNode::handleClose(   IOService *	  forClient,
 	}
 }
 
+// handleIsOpen
+//
+//
+
 bool IOFireWireLocalNode::handleIsOpen( const IOService * forClient ) const
 {
 	return (fOpenCount > 0 ) ;
 }
+
+// setProperties
+//
+//
 
 IOReturn IOFireWireLocalNode::setProperties( OSObject * properties )
 {

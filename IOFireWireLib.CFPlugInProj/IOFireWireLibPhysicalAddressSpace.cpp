@@ -29,9 +29,8 @@
  */
 
 #import "IOFireWireLibPhysicalAddressSpace.h"
+#import "IOFireWireLibDevice.h"
 #import <exception>
-
-#define MIN(a,b) ((a < b) ? a : b)
 
 namespace IOFireWireLib {
 	
@@ -45,9 +44,9 @@ namespace IOFireWireLib {
 		& PhysicalAddressSpace::SGetPhysicalSegment,
 		& PhysicalAddressSpace::SGetPhysicalAddress,
 		
-		NULL,
-		NULL,
-		NULL
+		SGetFWAddress,
+		SGetBuffer,
+		SGetBufferSize
 	} ;
 	
 	HRESULT
@@ -76,7 +75,7 @@ namespace IOFireWireLib {
 	IUnknownVTbl**
 	PhysicalAddressSpace::Alloc(
 		Device& 	inUserClient,
-		KernPhysicalAddrSpaceRef		inAddrSpaceRef,
+		UserObjectHandle		inAddrSpaceRef,
 		UInt32		 					inSize, 
 		void* 							inBackingStore, 
 		UInt32 							inFlags)
@@ -114,7 +113,7 @@ namespace IOFireWireLib {
 	PhysicalAddressSpace::SGetPhysicalAddress(
 		IOFireWireLibPhysicalAddressSpaceRef self)
 	{
-		return IOFireWireIUnknown::InterfaceMap<PhysicalAddressSpace>::GetThis(self)->mSegments[0] ;
+		return IOFireWireIUnknown::InterfaceMap<PhysicalAddressSpace>::GetThis(self)->mSegments[0].location ;
 	}
 	
 	void
@@ -136,63 +135,53 @@ namespace IOFireWireLib {
 	}
 	
 #pragma mark -
-	PhysicalAddressSpace::PhysicalAddressSpace( Device& inUserClient, KernPhysicalAddrSpaceRef inKernPhysicalAddrSpaceRef,
+	PhysicalAddressSpace::PhysicalAddressSpace( Device& inUserClient, UserObjectHandle inKernPhysicalAddrSpaceRef,
 				UInt32 inSize, void* inBackingStore, UInt32 inFlags)
-	: IOFireWireIUnknown( reinterpret_cast<IUnknownVTbl*>(& sInterface) ),
+	: IOFireWireIUnknown( reinterpret_cast<const IUnknownVTbl &>( sInterface ) ),
 	  mUserClient(inUserClient),
 	  mKernPhysicalAddrSpaceRef(inKernPhysicalAddrSpaceRef),
 	  mSize(inSize),
 	  mBackingStore(inBackingStore),
-	  mSegments(0),
-	  mSegmentLengths(0),
+	  mSegments( NULL ),
 	  mSegmentCount(0)
 	{
 		inUserClient.AddRef() ;
 
 		if (!mKernPhysicalAddrSpaceRef)
-			throw std::exception() ;
+			throw kIOReturnNoMemory ;
 		
-		IOReturn error = ::IOConnectMethodScalarIScalarO( mUserClient.GetUserClientConnection(), 
-								kPhysicalAddrSpace_GetSegmentCount, 1, 1, mKernPhysicalAddrSpaceRef, 
-								& mSegmentCount) ;
-		if ( mSegmentCount == 0)
-			throw std::exception() ;
+		IOReturn error = ::IOConnectMethodScalarIScalarO(   mUserClient.GetUserClientConnection(), 
+															mUserClient.MakeSelectorWithObject( kPhysicalAddrSpace_GetSegmentCount_d, 
+																mKernPhysicalAddrSpaceRef ), 
+															0, 1, & mSegmentCount) ;
+		if ( error || mSegmentCount == 0)
+			throw error ;
 			
-		mSegments = new IOPhysicalAddress[mSegmentCount] ;
+		mSegments = new PhysicalSegment[mSegmentCount] ;
 		if (!mSegments)
-			throw std::exception() ;
-
-		mSegmentLengths = new IOByteCount[mSegmentCount] ;
 		{
-			if (!mSegmentLengths)
-			{
-				delete mSegments ;
-				throw std::exception() ;
-			}
+			throw kIOReturnNoMemory ;
 		}
 		
 		error = ::IOConnectMethodScalarIScalarO( mUserClient.GetUserClientConnection(), 
-						kPhysicalAddrSpace_GetSegments, 4, 1, mKernPhysicalAddrSpaceRef,
-						mSegmentCount, mSegments, mSegmentLengths, & mSegmentCount) ;
+						kPhysicalAddrSpace_GetSegments, 3, 1, mKernPhysicalAddrSpaceRef,
+						mSegmentCount, mSegments, & mSegmentCount) ;
 
 		if (error)
-			throw std::exception() ;
+		{
+			throw error ;
+		}
 
-		mFWAddress = FWAddress(0, mSegments[0], 0) ;
+		mFWAddress = FWAddress(0, mSegments[0].location, 0) ;
 	}
 	
 	PhysicalAddressSpace::~PhysicalAddressSpace()
 	{
 		// call user client to delete our addr space ref here (if not yet released)
-		IOConnectMethodScalarIScalarO(
-			mUserClient.GetUserClientConnection(),
-			kPhysicalAddrSpace_Release,
-			1,
-			0,
-			mKernPhysicalAddrSpaceRef) ;
+		IOConnectMethodScalarIScalarO(  mUserClient.GetUserClientConnection(), 
+										kReleaseUserObject, 1, 0, mKernPhysicalAddrSpaceRef ) ;
 		
 		delete[] mSegments ;
-		delete[] mSegmentLengths ;
 	
 		mUserClient.Release() ;
 	}
@@ -203,10 +192,19 @@ namespace IOFireWireLib {
 		IOByteCount			outSegmentLengths[],
 		IOPhysicalAddress	outSegments[])
 	{
-		*ioSegmentCount = MIN(*ioSegmentCount, mSegmentCount) ;
+		if ( !outSegments || !outSegmentLengths )
+		{
+			*ioSegmentCount = mSegmentCount ;
+			return ;
+		}
 		
-		bcopy(mSegmentLengths, outSegmentLengths, (*ioSegmentCount)*sizeof(UInt32)) ;
-		bcopy(mSegments, outSegments, (*ioSegmentCount) * sizeof(IOPhysicalAddress)) ;
+		*ioSegmentCount = *ioSegmentCount <? mSegmentCount ;
+		
+		for( unsigned index=0; index < *ioSegmentCount; ++index )
+		{
+			outSegments[ index ] = mSegments[ index ].location ;
+			outSegmentLengths[ index ] = mSegments[ index ].length ;
+		}
 	}
 	
 	IOPhysicalAddress
@@ -218,19 +216,19 @@ namespace IOFireWireLib {
 	
 		if (mSegmentCount > 0)
 		{		
-			IOByteCount traversed = mSegmentLengths[0] ;
+			IOByteCount traversed = mSegments[0].length ;
 			UInt32		currentSegment = 0 ;
 			
 			while((traversed <= offset) && (currentSegment < mSegmentCount))
 			{
-				traversed += mSegmentLengths[currentSegment] ;
+				traversed += mSegments[ currentSegment ].length ;
 				++currentSegment ;
 			}	
 			
-			if (currentSegment <= mSegmentCount)
+			if ( currentSegment <= mSegmentCount )
 			{
-				*length = mSegmentLengths[currentSegment] ;
-				result =  mSegments[currentSegment] ;
+				*length = mSegments[ currentSegment ].length ;
+				result =  mSegments[ currentSegment ].location ;
 			}
 		}
 		
