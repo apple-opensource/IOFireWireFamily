@@ -29,6 +29,20 @@
  */
 /*
 	$Log: IOFWUserPseudoAddressSpace.h,v $
+	Revision 1.12  2009/10/16 23:59:06  calderon
+	<rdar://problem/7046489> 10A402 AsyncTester results in Error-Server verified Incorrect number of bytes
+	<rdar://problem/7111060> PanicTracer: 3 panics at IOFireWireFamily : IOFWUserPseudoAddressSpace::doPacket
+	
+	And some help for:
+	<rdar://problem/7116134> PanicTracer: 3 panics at com.apple.iokit.IOFireWireFamily
+	
+	Revision 1.11  2008/09/12 23:44:05  calderon
+	<rdar://5971979/> PseudoAddressSpace skips/mangles packets
+	<rdar://5708169/> FireWire synchronous commands' headerdoc missing callback info
+	
+	Revision 1.10  2008/07/04 00:09:14  arulchan
+	fix for rdar://6035774
+	
 	Revision 1.9  2007/02/16 19:03:44  arulchan
 	*** empty log message ***
 	
@@ -73,6 +87,7 @@
 
 // private
 #import "IOFireWireLibPriv.h"
+#import "IOFWRingBufferQ.h"
 
 using namespace IOFireWireLib ;
 
@@ -95,6 +110,8 @@ typedef union IOFWPacketHeader_t
         IOFWPacketHeader_t*			next ;
         OSAsyncReference64*			whichAsyncRef ;
         UInt32						argCount ;
+        io_user_reference_t			headerSize ;		// only valid for skipped packets
+		io_user_reference_t			headerOffset ;		// only valid for skipped packets
         
         io_user_reference_t			args[9] ;
     } CommonHeader ;
@@ -106,6 +123,8 @@ typedef union IOFWPacketHeader_t
         IOFWPacketHeader_t*			next ;
         OSAsyncReference64*			whichAsyncRef ;
         UInt32						argCount ;
+		io_user_reference_t			headerSize ;		// only valid for skipped packets
+		io_user_reference_t			headerOffset ;		// only valid for skipped packets
         // -----------------------------------------------
         
         io_user_reference_t			commandID ;			//	0
@@ -128,6 +147,8 @@ typedef union IOFWPacketHeader_t
         IOFWPacketHeader_t*			next ;
         OSAsyncReference64*			whichAsyncRef ;
         UInt32						argCount ;
+		io_user_reference_t			headerSize ;		// only valid for skipped packets
+		io_user_reference_t			headerOffset ;		// only valid for skipped packets
         // -----------------------------------------------
 
         io_user_reference_t					commandID ;			//	0
@@ -141,6 +162,8 @@ typedef union IOFWPacketHeader_t
 		IOFWPacketHeader_t*			next ;
 		OSAsyncReference64*			whichAsyncRef ;
 		UInt32						argCount ;
+		io_user_reference_t			headerSize ;		// only valid for skipped packets
+		io_user_reference_t			headerOffset ;		// only valid for skipped packets
 		// -----------------------------------------------
 
         io_user_reference_t			commandID ;			//	0
@@ -222,7 +245,6 @@ public:
 
 	// --- IOFWPseudoAddressSpace ----------
 	// override deactivate so we can delete any notification related structures...
-	virtual IOReturn					activate() ;
 	virtual void						deactivate() ;
 	
 	bool							completeInit( IOFireWireUserClient* userclient, AddressSpaceCreateParams* params ) ;
@@ -286,14 +308,13 @@ public:
 	void							sendPacketNotification(
 											IOFWPacketHeader*		inPacketHeader) ;
 private:
-    IOMemoryDescriptor*			fPacketQueueBuffer ;			// the queue where incoming packets, etc., go
+	IOFWRingBufferQ *			fPacketQueue;					// the queue where incoming packets go before being written to the backingstore
 	IOLock*						fLock ;							// to lock this object
 
 	mach_vm_address_t			fUserRefCon ;
 	IOFireWireUserClient*		fUserClient ;
 	IOFWPacketHeader*			fLastWrittenHeader ;
 	IOFWPacketHeader*			fLastReadHeader ;
-	UInt32						fBufferAvailable ;				// amount of queue space remaining
 	FWAddress					fAddress ;						// where we are
 	
 	OSAsyncReference64			fSkippedPacketAsyncNotificationRef ;
